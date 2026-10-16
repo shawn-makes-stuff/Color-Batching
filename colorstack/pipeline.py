@@ -38,7 +38,7 @@ DEFAULTS = {
         "max_segment": 0.4,
     },
     "cooling": {
-        "respect_min_layer_time": True,
+        "respect_min_layer_time": False,
         "stacked_fan": True,
         "lift_wait": False,
         "min_layer_time": 0.0,     # seconds; 0 = the file's own per filament

@@ -20,7 +20,7 @@ run with `python -m colorstack in.gcode --set section.key=value`.
 | `nonplanar.min_area` | 20 mm² | Smallest region worth a non-planar skin. |
 | `nonplanar.max_tread` | 6.0 mm | A flat wider than this is a real flat, not a stair step. |
 | `nonplanar.max_segment` | 0.4 mm | Longest straight piece of a skin line. |
-| `cooling.respect_min_layer_time` | on | Slow regions printed straight on top of themselves down to the minimum layer time, as the slicer does. Off keeps the sliced speeds. |
+| `cooling.respect_min_layer_time` | off | Slow regions printed straight on top of themselves down to the minimum layer time, as the slicer does. Off keeps the sliced speeds. |
 | `cooling.stacked_fan` | on | Raise the part fan on regions printed straight on top of themselves, by the slicer's own fan rule. |
 | `cooling.lift_wait` | off | If such a region is still under the minimum layer time at minimum speed, lift clear and wait. |
 | `cooling.min_layer_time` | 0 s | Minimum layer time for stacked regions; 0 = the file's own per filament. |
