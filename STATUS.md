@@ -32,6 +32,10 @@ First real print (Anycubic cube, Kobra 3 + ACE, 2026-10-16): 31 swaps as planned
 per-printer compensation.
 
 ## Open
+- Diagonal cube print (2026-10-16): faint lines at every colour change = speed contrast. With respect_min_layer_time
+  on, stacked layers' outer walls ran ~31 mm/s, the layers at each swap at the sliced 130 mm/s (seen in the viewer's
+  Speed mode). Now off by default. Open fix: keep outer walls at speed (slow the rest), honour the file's
+  dont_slow_down_outer_wall (currently ignored).
 - Slicer post-processing (in-place script + popout window) stashed 2026-10-16 in stash/slicer-postprocess/
   (snapshots + NOTES.md): not shipped until it behaves consistently. The web app is the product for now.
 - Nozzle not measured (placeholders: tip 1.0 mm, cone 45, clear height 2.0).
