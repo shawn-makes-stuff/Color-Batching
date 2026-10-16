@@ -230,7 +230,7 @@
   <div id="fileName"></div>
   <label class="open-btn">Original&hellip; <input type="file" id="fileA" accept=".gcode"></label>
   <label class="open-btn">Processed&hellip; <input type="file" id="fileB" accept=".gcode"></label>
-  <div class="seg" role="group" aria-label="Colour by"><button data-mode="0" class="on">Filament</button><button data-mode="1">Line type</button><button data-mode="2">Non-planar</button></div>
+  <div class="seg" role="group" aria-label="Colour by"><button data-mode="0" class="on">Filament</button><button data-mode="1">Line type</button><button data-mode="2">Non-planar</button><button data-mode="3">Speed</button></div>
   <label class="toggle"><input type="checkbox" id="travel">Travels</label>
   <button class="icon-btn" id="theme" title="Light / dark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 0 0 16z" fill="currentColor"/></svg></button>
 </header>
@@ -325,6 +325,9 @@ const roleOfName = (n) => ROLE_OF[TYPE_ALIAS[n] ?? n] ?? 0;
 const ARC_TOL = 0.01;                                                 // mm chord error when linearizing G2/G3
 const TRAVEL_COLOR = 0x38489b;                                        // 56, 72, 155
 const NP_COLOR = [52 / 255, 201 / 255, 139 / 255], FLAT_COLOR = [0.42, 0.44, 0.43];   // Non-planar view
+// Speed view: Orca's range palette (libvgcode ColorRange.hpp DEFAULT_RANGES_COLORS), slow (blue) to fast (red)
+const SPEED_COLORS = [[11, 44, 122], [19, 89, 133], [28, 136, 145], [4, 214, 15], [170, 242, 0], [252, 249, 3],
+                      [245, 206, 10], [227, 136, 32], [209, 104, 48], [194, 82, 60], [148, 38, 22]];
 
 // ---------- G-code parsing ----------
 // Extrusions are collected into polylines so the shader gets the join angle at each vertex (libvgcode
@@ -334,7 +337,7 @@ function parse(text) {
   let x = 0, y = 0, z = 0, f = 3000, tool = 0, t = 0, firstT = true, live = false;
   let absXYZ = true, absE = false, eNow = 0;
   let role = 0, width = 0.4, height = 0.2, travN = 0;
-  const posA = [], posB = [], hwA = [], hwB = [], toolOf = [], roleOf = [], tseg = [], travAt = [], npOf = [];
+  const posA = [], posB = [], hwA = [], hwB = [], toolOf = [], roleOf = [], tseg = [], travAt = [], npOf = [], spdOf = [];
   const swapsAt = [], trav = [];
   const min = [1e9, 1e9, 1e9], max = [-1e9, -1e9, -1e9];
   let pl = [];
@@ -357,7 +360,7 @@ function parse(text) {
         // extrusion vertices are pushed down by half the layer height
         posA.push(a.x, a.y, a.z - 0.5 * a.h); posB.push(b.x, b.y, b.z - 0.5 * b.h);
         hwA.push(a.h, a.w, ang[i]); hwB.push(b.h, b.w, ang[i + 1]);
-        toolOf.push(b.tool); roleOf.push(b.role); tseg.push(b.t); travAt.push(b.tn);
+        toolOf.push(b.tool); roleOf.push(b.role); tseg.push(b.t); travAt.push(b.tn); spdOf.push(b.f / 60);
         for (const [v, h] of [[a, a.h], [b, b.h]]) {
           min[0] = Math.min(min[0], v.x); max[0] = Math.max(max[0], v.x);
           min[1] = Math.min(min[1], v.y); max[1] = Math.max(max[1], v.y);
@@ -425,12 +428,12 @@ function parse(text) {
       const t0 = t;
       t += d / (f / 60);
       if (live && e > 0 && (nx !== x || ny !== y)) {
-        if (!pl.length) pl.push({ x, y, z, w: width, h: height, role, tool, t: t0, tn: travN });
+        if (!pl.length) pl.push({ x, y, z, w: width, h: height, role, tool, t: t0, tn: travN, f });
         for (let k = 1; k <= steps; k++) {
           const last = k === steps, u = k / steps;
           const px = last || !arc ? nx : x + ci + r * Math.cos(a0 + sweep * u);
           const py = last || !arc ? ny : y + cj + r * Math.sin(a0 + sweep * u);
-          pl.push({ x: px, y: py, z: z + (nz - z) * u, w: width, h: height, role, tool, t: t0 + (t - t0) * u, tn: travN });
+          pl.push({ x: px, y: py, z: z + (nz - z) * u, w: width, h: height, role, tool, t: t0 + (t - t0) * u, tn: travN, f });
         }
       } else if (any) {
         flush();
@@ -459,7 +462,7 @@ function parse(text) {
              : num("machine_load_filament_time", 0) + num("machine_unload_filament_time", 0);
   const nm = text.match(/^; COLORSTACK nozzle tip_diameter=([\d.]+) cone_angle=([\d.]+) clear_height=([\d.]+)/m);
   return { colours, n: tseg.length, swapEach: each, nozzle: nm ? { tip_diameter: +nm[1], cone_angle: +nm[2], clear_height: +nm[3] } : null, posA: new Float32Array(posA), posB: new Float32Array(posB),
-           hwA: new Float32Array(hwA), hwB: new Float32Array(hwB), tool: toolOf, role: roleOf, np: npOf,
+           hwA: new Float32Array(hwA), hwB: new Float32Array(hwB), tool: toolOf, role: roleOf, np: npOf, spd: new Float32Array(spdOf),
            tseg: new Float64Array(tseg), travAt: new Uint32Array(travAt), swapsAt,
            trav: new Float32Array(trav), moveTime: t, min, max };
 }
@@ -505,7 +508,18 @@ in vec3 aHwaB;
 in vec3 aColF;
 in vec3 aColR;
 in vec3 aColN;
+in float aSpd;
 uniform float uMode;
+uniform float uSpdMin;
+uniform float uSpdMax;
+const vec3 SPEED[11] = vec3[](${SPEED_COLORS.map((c) => `vec3(${c.map((v) => (v / 255).toFixed(4)).join(", ")})`).join(", ")});
+// libvgcode ColorRange::get_color_at, linear
+vec3 speed_color(float v) {
+  float step = (uSpdMax - uSpdMin) / 10.0;
+  float t = step > 0.0 ? (clamp(v, uSpdMin, uSpdMax) - uSpdMin) / step : 0.0;
+  int lo = clamp(int(t), 0, 10);
+  return mix(SPEED[lo], SPEED[min(lo + 1, 10)], t - float(lo));
+}
 uniform float uZmin;
 uniform float uZmax;
 uniform float uPart;     // instance being drawn right now (-1: none)
@@ -591,7 +605,7 @@ void main() {
   }
   vec3 eye_position = (viewMatrix * vec4(pos, 1.0)).xyz;
   vec3 eye_normal = (viewMatrix * vec4(normalize(pos - endpoint_pos), 0.0)).xyz;
-  vec3 color_base = uMode < 0.5 ? aColF : (uMode < 1.5 ? aColR : aColN);
+  vec3 color_base = uMode < 0.5 ? aColF : (uMode < 1.5 ? aColR : (uMode < 2.5 ? aColN : speed_color(aSpd)));
   color = color_base * lighting(eye_position, eye_normal);
   gl_Position = projectionMatrix * vec4(eye_position, 1.0);
 }`;
@@ -731,7 +745,7 @@ addEventListener("keydown", (e) => {
   setView(KEY_VIEWS[+e.key]);
 });
 // shared by both prints: layer range (by z) and colour mode
-const U = { uMode: { value: 0 }, uZmin: { value: -1e9 }, uZmax: { value: 1e9 } };
+const U = { uMode: { value: 0 }, uZmin: { value: -1e9 }, uZmax: { value: 1e9 }, uSpdMin: { value: 0 }, uSpdMax: { value: 1 } };
 const clipLo = new THREE.Plane(new THREE.Vector3(0, 0, 1), 1e6), clipHi = new THREE.Plane(new THREE.Vector3(0, 0, -1), 1e6);
 renderer.localClippingEnabled = true;
 const prints = [null, null];
@@ -775,6 +789,7 @@ function build(i, p) {
   g.setAttribute("vid", new THREE.BufferAttribute(Float32Array.from([0, 1, 2, 3, 4, 5, 6, 7]), 1));
   for (const [name, data] of [["aPosA", p.posA], ["aPosB", p.posB], ["aHwaA", p.hwA], ["aHwaB", p.hwB], ["aColF", colF], ["aColR", colR], ["aColN", colN]])
     g.setAttribute(name, new THREE.InstancedBufferAttribute(data, 3));
+  g.setAttribute("aSpd", new THREE.InstancedBufferAttribute(p.spd, 1));
   g.instanceCount = n;
   const mat = new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, vertexShader: VERT, fragmentShader: FRAG,
                                          uniforms: { ...U, uPart: { value: -1 }, uFrac: { value: 1 } }, side: THREE.DoubleSide });
@@ -870,9 +885,16 @@ function legend() {
   const ps = prints.filter(Boolean);
   const el = $("legend");
   if (!ps.length) { el.innerHTML = ""; return; }
+  let lo = Infinity, hi = 0;          // speed range over both prints, so one colour means one speed
+  for (const p of ps) for (const v of p.spd) if (v > 0) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+  U.uSpdMin.value = lo; U.uSpdMax.value = hi;
   const css = (c) => `rgb(${c.map((v) => Math.round(v * 255)).join(",")})`;
   let html;
-  if (U.uMode.value > 1.5) {
+  if (U.uMode.value > 2.5) {
+    const [lo, hi] = [U.uSpdMin.value, U.uSpdMax.value], digits = hi - lo < 10 ? 1 : 0;
+    html = "<b>Speed (mm/s)</b>" + SPEED_COLORS.map((c, k) => [c, lo + (hi - lo) * k / 10]).reverse()
+      .map(([c, v]) => `<div><i style="background:rgb(${c})"></i>${v.toFixed(digits)}</div>`).join("");
+  } else if (U.uMode.value > 1.5) {
     let np = 0;
     for (const p of ps) for (const v of p.np) np += v;
     html = `<b>Non-planar</b><div><i style="background:${css(NP_COLOR)}"></i>Ramped (${np} segments)</div>
