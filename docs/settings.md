@@ -13,7 +13,7 @@ run with `python -m colorstack in.gcode --set section.key=value`.
 | `stack.surface_tolerance` | 0.0 mm | How far a colour edge on a visible surface may move. 0 = never. |
 | `stack.min_piece` | 2.0 mm | Shorter leftovers between handed-over pieces are handed over too. |
 | `stack.per_object` | on | Also plan each object on its own; the faster plan is kept. |
-| `stack.staggered` | on | Also plan each colour on its own schedule (fewer swaps where 3+ colours share layers); the faster plan is kept. Slower processing. |
+| `stack.staggered` | off | Also plan each colour on its own schedule (fewer swaps where 3+ colours share layers); the faster plan is kept. Slower processing. |
 | `stack.resolution` | 0.1 mm | Sampling step for the collision planning. |
 | `nonplanar.smooth_tops` | off | Replace stair-stepped shallow tops with one continuous skin that follows the surface. |
 | `nonplanar.max_angle` | 15° | Steepest surface printed non-planar (also capped by the nozzle). |

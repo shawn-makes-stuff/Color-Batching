@@ -26,7 +26,7 @@ DEFAULTS = {
         "surface_tolerance": 0.0,
         "min_piece": 2.0,
         "per_object": True,        # plan with and without, keep the faster
-        "staggered": True,         # also plan each colour on its own schedule, keep the faster
+        "staggered": False,        # also plan each colour on its own schedule, keep the faster
         "resolution": 0.1,
     },
     "nonplanar": {
