@@ -1202,7 +1202,10 @@ async function initApp() {
     $("saveBtn").onclick = async () => {
       const url = `/work/${encodeURIComponent(output)}`;
       if (!window.showSaveFilePicker) {        // no save dialog in this browser: plain download
-        Object.assign(document.createElement("a"), { href: url + "?download=1", download: output }).click();
+        const a = Object.assign(document.createElement("a"), { href: url + "?download=1", download: output });
+        document.body.append(a);      // Firefox only follows a link that is in the page
+        a.click();
+        a.remove();
         return;
       }
       try {
