@@ -15,11 +15,6 @@ run with `python -m colorstack in.gcode --set section.key=value`.
 | `stack.per_object` | on | Also plan each object on its own; the faster plan is kept. |
 | `stack.staggered` | off | Also plan each colour on its own schedule (fewer swaps where 3+ colours share layers); the faster plan is kept. Slower processing. |
 | `stack.resolution` | 0.1 mm | Sampling step for the collision planning. |
-| `nonplanar.smooth_tops` | off | Replace stair-stepped shallow tops with one continuous skin that follows the surface. |
-| `nonplanar.max_angle` | 15° | Steepest surface printed non-planar (also capped by the nozzle). |
-| `nonplanar.min_area` | 20 mm² | Smallest region worth a non-planar skin. |
-| `nonplanar.max_tread` | 6.0 mm | A flat wider than this is a real flat, not a stair step. |
-| `nonplanar.max_segment` | 0.4 mm | Longest straight piece of a skin line. |
 | `cooling.respect_min_layer_time` | off | Slow regions printed straight on top of themselves down to the minimum layer time, as the slicer does. Off keeps the sliced speeds. |
 | `cooling.stacked_fan` | on | Raise the part fan on regions printed straight on top of themselves, by the slicer's own fan rule. |
 | `cooling.lift_wait` | off | If such a region is still under the minimum layer time at minimum speed, lift clear and wait. |

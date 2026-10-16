@@ -36,17 +36,9 @@ class Path:
     hop_before: bool = True
     head: bool = True         # starts where the slicer's path started (False for a later piece of a split)
     tail: bool = True
-    zs: list | None = None    # per-point Z of a non-planar path
     tower: str | None = None  # prime tower part: "wipe", "grid" or "wall"
     block: int = -1           # wipe block number (one per tool change)
     scv: float | None = None  # Klipper square corner velocity set before the path
-
-    def z_at(self, k):
-        return self.zs[k] if self.zs is not None else self.z
-
-    @property
-    def top(self):
-        return max(self.zs) if self.zs is not None else self.z
 
     @property
     def visible(self):

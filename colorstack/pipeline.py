@@ -8,7 +8,6 @@ from .emit import Writer
 from .estimate import (anchor, estimate, file_estimate, fmt_duration, machine_limits, parse_duration,
                        stamp_progress, swap_each)
 from .gcode import parse
-from .nonplanar import SmoothOptions, smooth_tops
 from .plan import Nozzle, Options, plan, plan_staggered
 from .reader import load
 from .tower import compensate
@@ -29,13 +28,6 @@ DEFAULTS = {
         "per_object": True,        # plan with and without, keep the faster
         "staggered": False,        # also plan each colour on its own schedule, keep the faster
         "resolution": 0.1,
-    },
-    "nonplanar": {
-        "smooth_tops": False,
-        "max_angle": 15.0,
-        "min_area": 20.0,
-        "max_tread": 6.0,
-        "max_segment": 0.4,
     },
     "cooling": {
         "respect_min_layer_time": False,
@@ -65,7 +57,8 @@ def load_config(path=CONFIG_PATH):
     if Path(path).exists():
         with open(path, "rb") as f:
             for section, values in tomllib.load(f).items():
-                cfg.setdefault(section, {}).update(values)
+                if section in cfg:          # sections of removed features are dropped
+                    cfg[section].update(values)
     return cfg
 
 
@@ -155,15 +148,10 @@ def run(input_path, output_path, cfg, progress=None):
     """Process input_path into output_path. Returns a JSON-able summary. progress(fraction, stage) as it goes,
     the fraction weighted by what each stage costs on a 4-colour file."""
     report = progress or (lambda fraction, stage: None)
-    nz, st, npl = cfg["nozzle"], cfg["stack"], cfg["nonplanar"]
+    nz, st = cfg["nozzle"], cfg["stack"]
     nozzle = Nozzle(nz["tip_diameter"] / 2, nz["cone_angle"], nz["clear_height"], nz["contact"])
     report(0.0, "Reading the file")
     prog = parse(input_path)
-    ramped = 0
-    if npl["smooth_tops"]:
-        ramped = smooth_tops(prog, SmoothOptions(max_tread=npl["max_tread"], max_segment=npl["max_segment"],
-                                                 resolution=st["resolution"], max_angle=npl["max_angle"],
-                                                 min_area=npl["min_area"]), nozzle)
     lim = machine_limits(prog.settings, cfg["printer"])
     original = load(input_path)
     report(0.05, "Timing the original")
@@ -223,7 +211,6 @@ def run(input_path, output_path, cfg, progress=None):
         "bands": len(bands),
         "ceded_mm": sum(b.ceded_mm for b in bands),
         "visible_ceded_mm": sum(b.visible_ceded_mm for b in bands),
-        "ramped_paths": ramped,
         "per_object": per_object,
         "staggered": staggered,
         "min_layer_time": writer.min_layer_time,

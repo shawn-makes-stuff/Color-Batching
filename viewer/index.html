@@ -230,7 +230,7 @@
   <div id="fileName"></div>
   <label class="open-btn">Original&hellip; <input type="file" id="fileA" accept=".gcode"></label>
   <label class="open-btn">Processed&hellip; <input type="file" id="fileB" accept=".gcode"></label>
-  <div class="seg" role="group" aria-label="Colour by"><button data-mode="0" class="on">Filament</button><button data-mode="1">Line type</button><button data-mode="2">Non-planar</button><button data-mode="3">Speed</button></div>
+  <div class="seg" role="group" aria-label="Colour by"><button data-mode="0" class="on">Filament</button><button data-mode="1">Line type</button><button data-mode="2">Speed</button></div>
   <label class="toggle"><input type="checkbox" id="travel">Travels</label>
   <button class="icon-btn" id="theme" title="Light / dark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 0 0 16z" fill="currentColor"/></svg></button>
 </header>
@@ -324,7 +324,6 @@ const TYPE_ALIAS = { "WALL-OUTER": "Outer wall", "WALL-INNER": "Inner wall", "SK
 const roleOfName = (n) => ROLE_OF[TYPE_ALIAS[n] ?? n] ?? 0;
 const ARC_TOL = 0.01;                                                 // mm chord error when linearizing G2/G3
 const TRAVEL_COLOR = 0x38489b;                                        // 56, 72, 155
-const NP_COLOR = [52 / 255, 201 / 255, 139 / 255], FLAT_COLOR = [0.42, 0.44, 0.43];   // Non-planar view
 // Speed view: Orca's range palette (libvgcode ColorRange.hpp DEFAULT_RANGES_COLORS), slow (blue) to fast (red)
 const SPEED_COLORS = [[11, 44, 122], [19, 89, 133], [28, 136, 145], [4, 214, 15], [170, 242, 0], [252, 249, 3],
                       [245, 206, 10], [227, 136, 32], [209, 104, 48], [194, 82, 60], [148, 38, 22]];
@@ -507,7 +506,6 @@ in vec3 aHwaA;
 in vec3 aHwaB;
 in vec3 aColF;
 in vec3 aColR;
-in vec3 aColN;
 in float aSpd;
 uniform float uMode;
 uniform float uSpdMin;
@@ -605,7 +603,7 @@ void main() {
   }
   vec3 eye_position = (viewMatrix * vec4(pos, 1.0)).xyz;
   vec3 eye_normal = (viewMatrix * vec4(normalize(pos - endpoint_pos), 0.0)).xyz;
-  vec3 color_base = uMode < 0.5 ? aColF : (uMode < 1.5 ? aColR : (uMode < 2.5 ? aColN : speed_color(aSpd)));
+  vec3 color_base = uMode < 0.5 ? aColF : (uMode < 1.5 ? aColR : speed_color(aSpd));
   color = color_base * lighting(eye_position, eye_normal);
   gl_Position = projectionMatrix * vec4(eye_position, 1.0);
 }`;
@@ -775,19 +773,18 @@ function build(i, p) {
   clear(i);
   prints[i] = p;
   const n = p.n;
-  const colF = new Float32Array(n * 3), colR = new Float32Array(n * 3), colN = new Float32Array(n * 3);
+  const colF = new Float32Array(n * 3), colR = new Float32Array(n * 3);
   const fil = p.colours.map(hexRgb);
   for (let k = 0; k < n; k++) {
     colF.set(fil[p.tool[k]] ?? fil[0], k * 3);
     const r = ROLES[p.role[k]];
     colR.set([r[1] / 255, r[2] / 255, r[3] / 255], k * 3);
-    colN.set(p.np[k] ? NP_COLOR : FLAT_COLOR, k * 3);
   }
   const g = new THREE.InstancedBufferGeometry();
   g.setIndex(TEMPLATE_INDEX);
   g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(8 * 3), 3));
   g.setAttribute("vid", new THREE.BufferAttribute(Float32Array.from([0, 1, 2, 3, 4, 5, 6, 7]), 1));
-  for (const [name, data] of [["aPosA", p.posA], ["aPosB", p.posB], ["aHwaA", p.hwA], ["aHwaB", p.hwB], ["aColF", colF], ["aColR", colR], ["aColN", colN]])
+  for (const [name, data] of [["aPosA", p.posA], ["aPosB", p.posB], ["aHwaA", p.hwA], ["aHwaB", p.hwB], ["aColF", colF], ["aColR", colR]])
     g.setAttribute(name, new THREE.InstancedBufferAttribute(data, 3));
   g.setAttribute("aSpd", new THREE.InstancedBufferAttribute(p.spd, 1));
   g.instanceCount = n;
@@ -830,7 +827,7 @@ let layers = [];          // sorted unique layer z across both prints
 const lay = { lo: 0, hi: 0 };
 function setLayers() {
   const set = new Set();
-  // layers are the planar heights; ramped (non-planar) lines sit between them and would add fake layers
+  // layers are the planar heights; lines that change height (a slicer's Z anti-aliasing) would add fake layers
   for (const p of prints) if (p) for (let k = 0; k < p.n; k++)
     if (!p.np[k]) set.add(Math.round((p.posA[k * 3 + 2] + 0.5 * p.hwA[k * 3]) * 1000));
   const keepTop = lay.hi >= layers.length - 1, keepBot = lay.lo === 0;
@@ -890,15 +887,10 @@ function legend() {
   U.uSpdMin.value = lo; U.uSpdMax.value = hi;
   const css = (c) => `rgb(${c.map((v) => Math.round(v * 255)).join(",")})`;
   let html;
-  if (U.uMode.value > 2.5) {
+  if (U.uMode.value > 1.5) {
     const [lo, hi] = [U.uSpdMin.value, U.uSpdMax.value], digits = hi - lo < 10 ? 1 : 0;
     html = "<b>Speed (mm/s)</b>" + SPEED_COLORS.map((c, k) => [c, lo + (hi - lo) * k / 10]).reverse()
       .map(([c, v]) => `<div><i style="background:rgb(${c})"></i>${v.toFixed(digits)}</div>`).join("");
-  } else if (U.uMode.value > 1.5) {
-    let np = 0;
-    for (const p of ps) for (const v of p.np) np += v;
-    html = `<b>Non-planar</b><div><i style="background:${css(NP_COLOR)}"></i>Ramped (${np} segments)</div>
-      <div><i style="background:${css(FLAT_COLOR)}"></i>Flat</div>`;
   } else if (U.uMode.value < 0.5) {
     const tools = new Set(), names = ps[0].colours;
     for (const p of ps) for (const k of p.tool) tools.add(k);
@@ -1125,9 +1117,8 @@ async function initApp() {
                 "cooling.tower_between", "cooling.lift_wait"],
     "Nozzle": ["nozzle.tip_diameter", "nozzle.cone_angle", "nozzle.clear_height"],
   };
-  const nonplanar = cfg.sections.find((sec) => sec.name === "nonplanar").fields.map((f) => `nonplanar.${f.key}`);
-  const used = new Set([...Object.values(MAIN).flat(), ...nonplanar, ...HIDDEN]);
-  const titles = { stack: "Stacking", nozzle: "Nozzle", nonplanar: "Non-planar tops", cooling: "Cooling",
+  const used = new Set([...Object.values(MAIN).flat(), ...HIDDEN]);
+  const titles = { stack: "Stacking", nozzle: "Nozzle", cooling: "Cooling",
                    swap: "Colour changes", export: "Export", printer: "Fallback motion limits" };
   const advanced = cfg.sections.map((sec) => {
     const keys = sec.fields.map((f) => `${sec.name}.${f.key}`).filter((k) => !used.has(k));
@@ -1142,7 +1133,6 @@ async function initApp() {
       <div id="err"></div>
       ${Object.entries(MAIN).map(([title, keys]) => `<section class="card"><h3>${title}</h3>${keys.map(field).join("")}
 </section>`).join("")}
-      <details class="card"><summary>Non-planar (experimental)</summary>${nonplanar.map(field).join("")}</details>
       <details class="card"><summary>Advanced</summary>${advanced}</details>
     </div>
     <div id="appFoot"><span class="small" id="panelHint">Import a G-code file to start</span><span class="spacer"></span><button class="link" id="saveCfg" title="Save these settings as the defaults">Save defaults</button></div>
