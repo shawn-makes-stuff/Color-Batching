@@ -7,7 +7,7 @@
 | cube_sphere (non-planar tops, max_angle 22) | 91 -> 47 | 2h23m16s -> 1h32m44s |
 | samples/cube1h43 (Orca, default contact) | 77 -> 41 | 1h43m19s -> 1h06m56s |
 | samples/stitch | 318 -> 181 | 7h20m49s -> 5h02m50s |
-| samples/stitch, staggered (default since 2026-10-16) | 318 -> 148 | 7h20m49s -> 4h31m32s |
+| samples/stitch, stack.staggered=true (off by default since 3bac17d) | 318 -> 148 | 7h20m49s -> 4h31m32s |
 | samples/stitch, staggered + local_lift + tower_between | 318 -> 148 | 7h20m49s -> 4h23m12s |
 
 Staggered gives nothing on the 2-colour files (the band plan is kept). Stitch processing: 81 s before staggered,
@@ -21,7 +21,7 @@ supports. plan_band's resting check is strict `< width/2`, so a line exactly on 
 handed over. Not fixed, on purpose: each spot is one 0.2 mm sample of a line resting half on each colour (a ~45°
 overhang that long), and handing such visible seam lines to the later colour would move surface colour or add swaps.
 
-2026-10-16 options: stack.staggered (on), cooling.min_layer_time (0 = file's slow_down_layer_time per filament,
+2026-10-16 options: stack.staggered (off by default; on gives the Stitch rows above), cooling.min_layer_time (0 = file's slow_down_layer_time per filament,
 where slow_down_for_layer_cooling is on), cooling.tower_between (off; cube -31 s), travel.local_lift (off; cube
 -41 s; lifts by the full cone reach at the tallest printed point, global top past clear_height). The pipeline now
 picks between plans by total time (motion + swaps x per-swap cost), not motion alone. With staggered off and new

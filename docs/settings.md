@@ -40,5 +40,6 @@ run with `python -m colorstack in.gcode --set section.key=value`.
   while the colour between them catches up in one long run.
 - **Writing.** Travels, retracts, wipes and hops follow the file's own settings. Stacked regions keep the file's
   minimum layer time and fan rule. Each remaining swap keeps its prime tower wipe; unused blocks become grid.
-- **Time.** Klipper-style motion with the file's machine limits; the per-swap cost is what the slicer's own total
-  leaves after motion.
+- **Time and filament.** Klipper-style motion with the file's machine limits; the per-swap cost is what the
+  slicer's own total leaves after motion. The file's summary (times in every mode, colour changes, filament used)
+  and its progress lines are rewritten; the flush per filament is the slicer's, scaled to the swaps left.

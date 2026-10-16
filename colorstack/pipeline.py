@@ -5,7 +5,8 @@ import tomllib
 from pathlib import Path
 
 from .emit import Writer
-from .estimate import anchor, estimate, file_estimate, machine_limits, stamp_progress, swap_each
+from .estimate import (anchor, estimate, file_estimate, fmt_duration, machine_limits, parse_duration,
+                       stamp_progress, swap_each)
 from .gcode import parse
 from .nonplanar import SmoothOptions, smooth_tops
 from .plan import Nozzle, Options, plan, plan_staggered
@@ -92,17 +93,60 @@ def save_config(cfg, path=CONFIG_PATH):
     Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def _stamp_estimate(lines, seconds):
-    """The new total in the file's estimate line, for the printer's UI."""
-    h, r = divmod(int(round(seconds)), 3600)
-    m, sec = divmod(r, 60)
-    value = (f"{h}h " if h else "") + f"{m}m {sec}s"
-    for pattern, new in ((r"^(; estimated printing time \(normal mode\) = ).*$", lambda mm: mm.group(1) + value),
-                         (r"^;TIME:\d+", f";TIME:{int(round(seconds))}")):
-        for k, ln in enumerate(lines):
-            if re.match(pattern, ln):
-                lines[k] = re.sub(pattern, new, ln)
+def _stamp_header(lines, o, p):
+    """The slicer's summary lines with the new figures, for the printer's screen: the times (other modes scaled
+    like normal), the filament change count and the filament used. Filament per tool: the original's, plus the
+    change in what the file extrudes, with the flush it counted beyond that scaled to the swaps into that tool."""
+    ratio = p["total_s"] / o["total_s"] if o["total_s"] else 1.0
+    lengths = {}            # tool -> (original mm, new mm)
+
+    def used_mm(values):
+        out = []
+        for t, mm in enumerate(values):
+            flush = max(0.0, mm - o["extruded"].get(t, 0.0))
+            into_o, into_p = o["swaps_into"].get(t, 0), p["swaps_into"].get(t, 0)
+            new = mm + p["extruded"].get(t, 0.0) - o["extruded"].get(t, 0.0) - flush * (1 - into_p / into_o if into_o else 0)
+            out.append(max(0.0, new) if mm else 0.0)
+            lengths[t] = (mm, out[-1])
+        return out
+
+    def per_tool(values):      # cm3, g, cost: in proportion to the length
+        return [v * lengths[t][1] / lengths[t][0] if lengths.get(t, (0,))[0] else v for t, v in enumerate(values)]
+
+    rules = [
+        (r"^(; estimated printing time \(normal mode\) = ).*$", lambda m: m.group(1) + fmt_duration(p["total_s"])),
+        (r"^(; estimated printing time \((?:silent|sport) mode\) = )(.*)$",
+         lambda m: m.group(1) + fmt_duration(parse_duration(m.group(2)) * ratio)),
+        (r"^(;TIME:)\d+", lambda m: m.group(1) + str(int(round(p["total_s"])))),
+        (r"^(; total filament change = )\d+", lambda m: m.group(1) + str(p["swaps"])),
+        (r"^(; filament used \[mm\] = )(.*)$", lambda m: m.group(1) + _floats(used_mm(_numbers(m.group(2))))),
+        (r"^(; filament used \[(?:cm3|g)\] = |; filament cost = )(.*)$",
+         lambda m: m.group(1) + _floats(per_tool(_numbers(m.group(2))))),
+    ]
+    for k, ln in enumerate(lines):
+        for pattern, new in rules:
+            m = re.match(pattern, ln)
+            if m:
+                lines[k] = new(m)
                 break
+    # totals from the per-tool lines just written
+    sums = {}
+    for ln in lines:
+        m = re.match(r"^; (filament used \[g\]|filament cost) = (.*)$", ln)
+        if m:
+            sums[m.group(1)] = sum(_numbers(m.group(2)))
+    for k, ln in enumerate(lines):
+        m = re.match(r"^(; total (filament used \[g\]|filament cost) = )", ln)
+        if m and m.group(2) in sums:
+            lines[k] = m.group(1) + f"{sums[m.group(2)]:.2f}"
+
+
+def _numbers(text):
+    return [float(x) for x in text.split(",")]
+
+
+def _floats(values):
+    return ", ".join(f"{v:.2f}" for v in values)
 
 
 PLAN_WEIGHT = {False: 22.0, True: 41.0}   # relative cost of a banded / staggered plan, measured on a 4-colour file
@@ -173,7 +217,7 @@ def run(input_path, output_path, cfg, progress=None):
     _, p, steps, lines, per_object, staggered, bands, (wipes_kept, wipes_gridded), writer = best
     anchor(o, p, slicer, lim)
     lines = stamp_progress(lines, steps, p["swap_each_s"], p["total_s"])
-    _stamp_estimate(lines, p["total_s"])
+    _stamp_header(lines, o, p)
     Path(output_path).write_text("\n".join(lines) + "\n", encoding="utf-8")
     return {
         "original": o,

@@ -35,15 +35,24 @@ def machine_limits(settings, fallback):
                   first("machine_unload_filament_time", 0.0) + first("machine_load_filament_time", 0.0))
 
 
+def parse_duration(text):
+    """'1d 2h 3m 4s' -> seconds."""
+    return sum(int(v) * {"d": 86400, "h": 3600, "m": 60, "s": 1}[u] for v, u in re.findall(r"(\d+)\s*([dhms])", text))
+
+
+def fmt_duration(seconds):
+    """Seconds -> '1h 2m 3s', as the slicers write it."""
+    h, r = divmod(int(round(seconds)), 3600)
+    m, s = divmod(r, 60)
+    return (f"{h}h " if h else "") + f"{m}m {s}s"
+
+
 def file_estimate(lines):
     """The slicer's total in seconds: '; estimated printing time (normal mode) = 1h 2m 3s' or Cura ';TIME:123'."""
     for ln in lines:
         m = re.match(r"^;\s*estimated printing time(?: \(normal mode\))?\s*=\s*(.+)$", ln.strip())
         if m:
-            t = 0.0
-            for val, unit in re.findall(r"(\d+)\s*([dhms])", m.group(1)):
-                t += int(val) * {"d": 86400, "h": 3600, "m": 60, "s": 1}[unit]
-            return t or None
+            return parse_duration(m.group(1)) or None
         m = re.match(r"^;TIME:(\d+)", ln.strip())
         if m:
             return float(m.group(1))
@@ -174,15 +183,17 @@ def _flush(moves, scv, steps=None):
 
 
 def estimate(lines, lim, steps=None):
-    """Motion, dwell and swap count of a file. steps collects the timeline: (line, s) per move and dwell,
-    (line, None) per colour change."""
+    """Motion, dwell and swap count of a file, and per tool the filament extruded and the swaps into it.
+    steps collects the timeline: (line, s) per move and dwell, (line, None) per colour change."""
     accel, scv = lim.a, lim.scv
     moves = []
     motion = dwell = 0.0
     swaps = 0
     tool = None
+    extruded, swaps_into = {}, {}
     for i, kind, v in read(lines):
         if kind == "move":
+            extruded[tool] = extruded.get(tool, 0.0) + v.de
             dx, dy, dz = v.x1 - v.x0, v.y1 - v.y0, v.z1 - v.z0
             d = math.sqrt(dx * dx + dy * dy + dz * dz)
             if d > 1e-9:
@@ -209,6 +220,7 @@ def estimate(lines, lim, steps=None):
         elif kind == "tool":
             if tool is not None and v[0] != tool:
                 swaps += 1
+                swaps_into[v[0]] = swaps_into.get(v[0], 0) + 1
                 if steps is not None:
                     steps.append((i, None))
             tool = v[0]
@@ -220,7 +232,7 @@ def estimate(lines, lim, steps=None):
                 if steps is not None:
                     steps.append((i, s))
     motion += _flush(moves, scv, steps)
-    return {"motion_s": motion, "dwell_s": dwell, "swaps": swaps}
+    return {"motion_s": motion, "dwell_s": dwell, "swaps": swaps, "extruded": extruded, "swaps_into": swaps_into}
 
 
 def fmt_time(s):
