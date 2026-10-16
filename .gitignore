@@ -4,3 +4,5 @@ samples/out/
 samples/models/out/
 colorstack.toml
 stash/
+samples/doorbell.gcode
+samples/stitch.gcode
