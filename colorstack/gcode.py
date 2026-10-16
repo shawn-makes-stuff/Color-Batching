@@ -14,7 +14,7 @@ VISIBLE_TYPES = {"Outer wall", "Overhang wall", "Top surface", "Bottom surface",
 NEUTRAL_TYPES = {"Prime tower"}  # printed by whichever tool is loaded
 
 # recomputed or meaningless after reordering
-DROP = {"G92", "M73", "SET_PRINT_STATS_INFO", "M220", "G17", "M117", "SET_VELOCITY_LIMIT", "M204", "M82", "M83",
+DROP = {"G92", "M73", "SET_PRINT_STATS_INFO", "G17", "M117", "SET_VELOCITY_LIMIT", "M204", "M82", "M83",
         "G90", "G91"}
 TEMPS = {"M104", "M109", "M140", "M190", "M141", "M191"}
 
@@ -39,6 +39,7 @@ class Path:
     zs: list | None = None    # per-point Z of a non-planar path
     tower: str | None = None  # prime tower part: "wipe", "grid" or "wall"
     block: int = -1           # wipe block number (one per tool change)
+    scv: float | None = None  # Klipper square corner velocity set before the path
 
     def z_at(self, k):
         return self.zs[k] if self.zs is not None else self.z
@@ -137,7 +138,7 @@ def parse(path_in):
     modes = [w for w in modes if w in ("M82", "M83")]
     prog.abs_e = bool(modes) and modes[-1] == "M82"
     layers, cur = [], None
-    accel, typ, width, obj = None, "", None, None
+    accel, scv, typ, width, obj = None, None, "", None, None
     fans = {}
     path = None
     seq = 0
@@ -180,7 +181,7 @@ def parse(path_in):
                 if path is None:
                     tl = None if typ in NEUTRAL_TYPES else tool
                     path = Path(tl, typ, width, m.z1, [(m.x0, m.y0)], [], [], accel, dict(fans), obj,
-                                seq, retracted, hopped)
+                                seq, retracted, hopped, scv=scv)
                     if typ in NEUTRAL_TYPES:
                         path.tower, path.block = tower_sec, block if tower_sec == "wipe" else -1
                 path.pts.append((m.x1, m.y1))
@@ -221,6 +222,11 @@ def parse(path_in):
                     prog.accel_format = "M204 S{a}" if w == "M204" else "SET_VELOCITY_LIMIT ACCEL={a}"
                     accel_seen = True
             accel = val
+            continue
+        if kind == "scv":
+            if live:
+                close()
+            scv = val
             continue
         if not live:
             if kind == "cmd" and val.split()[0].upper() in ("M106", "M107"):

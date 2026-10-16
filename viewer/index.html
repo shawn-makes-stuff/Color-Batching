@@ -1099,11 +1099,12 @@ async function initApp() {
   const MAIN = {
     "Stacking": ["nozzle.contact", "stack.max_band_layers", "stack.surface_tolerance", "stack.per_object",
                  "stack.staggered"],
-    "Cooling": ["cooling.min_layer_time", "cooling.stacked_fan", "cooling.tower_between", "cooling.lift_wait"],
-    "Non-planar": ["nonplanar.smooth_tops", "nonplanar.max_angle", "nonplanar.min_area"],
+    "Cooling": ["cooling.respect_min_layer_time", "cooling.min_layer_time", "cooling.stacked_fan",
+                "cooling.tower_between", "cooling.lift_wait"],
     "Nozzle": ["nozzle.tip_diameter", "nozzle.cone_angle", "nozzle.clear_height"],
   };
-  const used = new Set([...Object.values(MAIN).flat(), ...HIDDEN]);
+  const nonplanar = cfg.sections.find((sec) => sec.name === "nonplanar").fields.map((f) => `nonplanar.${f.key}`);
+  const used = new Set([...Object.values(MAIN).flat(), ...nonplanar, ...HIDDEN]);
   const titles = { stack: "Stacking", nozzle: "Nozzle", nonplanar: "Non-planar tops", cooling: "Cooling",
                    swap: "Colour changes", travel: "Travel", export: "Export", printer: "Fallback motion limits" };
   const advanced = cfg.sections.map((sec) => {
@@ -1119,6 +1120,7 @@ async function initApp() {
       <div id="err"></div>
       ${Object.entries(MAIN).map(([title, keys]) => `<section class="card"><h3>${title}</h3>${keys.map(field).join("")}
 </section>`).join("")}
+      <details class="card"><summary>Non-planar (experimental)</summary>${nonplanar.map(field).join("")}</details>
       <details class="card"><summary>Advanced</summary>${advanced}</details>
     </div>
     <div id="appFoot"><span class="small" id="panelHint">Import a G-code file to start</span><span class="spacer"></span><button class="link" id="saveCfg" title="Save these settings as the defaults">Save defaults</button></div>

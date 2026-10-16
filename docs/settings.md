@@ -20,12 +20,13 @@ run with `python -m colorstack in.gcode --set section.key=value`.
 | `nonplanar.min_area` | 20 mm² | Smallest region worth a non-planar skin. |
 | `nonplanar.max_tread` | 6.0 mm | A flat wider than this is a real flat, not a stair step. |
 | `nonplanar.max_segment` | 0.4 mm | Longest straight piece of a skin line. |
+| `cooling.respect_min_layer_time` | on | Slow regions printed straight on top of themselves down to the minimum layer time, as the slicer does. Off keeps the sliced speeds. |
 | `cooling.stacked_fan` | on | Raise the part fan on regions printed straight on top of themselves, by the slicer's own fan rule. |
 | `cooling.lift_wait` | off | If such a region is still under the minimum layer time at minimum speed, lift clear and wait. |
 | `cooling.min_layer_time` | 0 s | Minimum layer time for stacked regions; 0 = the file's own per filament. |
 | `cooling.tower_between` | off | Print the tower's walls and grid between a colour's stacked layers, as cooling time. |
 | `swap.lift` | 1.0 mm | Lift above the tallest printed point before each colour change (at least the slicer's Z hop). |
-| `travel.local_lift` | off | Travels lift only above plastic the nozzle could reach on the way. Faster; trusts the G-code's heights. |
+| `travel.local_lift` | on | Travels lift only where they would pass over plastic higher than the current layer; elsewhere they travel as the slicer did. Off: every travel lifts above the tallest printed point. |
 | `export.printer_host` | (empty) | Moonraker address for Send to printer, e.g. `192.168.1.20` or `192.168.1.20:7125`. |
 | `printer.*` | Klipper defaults | Motion limits for the time estimate, only for files that do not carry the slicer's machine limits. |
 

@@ -40,6 +40,9 @@ HELP = {
     "nonplanar.min_area": ("Min area", "mm²", "Smallest region worth a non-planar skin."),
     "nonplanar.max_tread": ("Max tread", "mm", "A flat wider than this is a real flat, not a stair step."),
     "nonplanar.max_segment": ("Max segment", "mm", "Longest straight piece of a ramped line."),
+    "cooling.respect_min_layer_time": ("Respect minimum layer time", "", "Slow regions printed again straight on top "
+                                       "of themselves down to the minimum layer time, as the slicer does. Off: keep "
+                                       "the sliced speeds (the fan rule still applies)."),
     "cooling.stacked_fan": ("Fan for stacked regions", "", "Raise the part fan on regions printed again straight on "
                             "top of themselves, by the slicer's own fan rule."),
     "cooling.lift_wait": ("Lift and wait", "", "If a stacked region is still under the minimum layer time at "
@@ -50,9 +53,9 @@ HELP = {
                               "stacked layers, as cooling time. The wipe still comes right after the swap."),
     "swap.lift": ("Swap lift", "mm", "Before each colour change, lift this far above the tallest point printed so "
                   "far (at least the slicer's Z hop), so the trip to the purge tray clears every stack."),
-    "travel.local_lift": ("Local travel lift", "", "Travels lift above the plastic the nozzle could reach on the way "
-                          "instead of above the tallest point printed anywhere. Faster, but trusts the G-code's "
-                          "heights: a curled edge or blob taller than the file can be hit."),
+    "travel.local_lift": ("Local travel lift", "", "Travels lift only where they would pass over plastic standing "
+                          "higher than the layer being printed (another colour's stack); elsewhere they travel as "
+                          "the slicer did. Off: every travel lifts above the tallest point printed anywhere."),
     "export.printer_host": ("Printer", "", "Moonraker address for Send to printer, e.g. 192.168.1.20 or "
                             "192.168.1.20:7125."),
     "printer.max_velocity": ("Max velocity", "mm/s", "Fallback for the time estimate, for files without the "

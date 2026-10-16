@@ -53,18 +53,20 @@ class Heights:
 
 
 class Writer:
-    def __init__(self, program, swap_lift=1.0, stacked_fan=True, lift_wait=False, min_layer_time=0.0,
-                 tower_between=False, local_lift=None):
+    def __init__(self, program, nozzle, swap_lift=1.0, stacked_fan=True, lift_wait=False, min_layer_time=0.0,
+                 tower_between=False, local_lift=False, respect_min_layer_time=True):
         """min_layer_time > 0 overrides the file's. tower_between: print the tower between a colour's stacked
-        layers (cooling time) instead of all right after the swap. local_lift (a Nozzle): travels lift above the
-        plastic that nozzle could reach on the way, not above the tallest point printed anywhere."""
+        layers (cooling time) instead of all right after the swap. local_lift: travels lift above the plastic the
+        nozzle could reach on the way, not above the tallest point printed anywhere.
+        respect_min_layer_time off: stacked regions keep the sliced speeds (the fan rule still applies)."""
         self.p = program
+        self.respect_min_layer_time = respect_min_layer_time
         self.swap_lift = swap_lift
         self.stacked_fan = stacked_fan
         self.lift_wait = lift_wait
         self.tower_between = tower_between
-        self.nozzle = local_lift
-        self.heights = Heights(program) if local_lift is not None else None
+        self.nozzle = nozzle
+        self.heights = Heights(program) if local_lift else None
         t = program.travel
         self.retract, self.retract_f, self.deretract_f = t["retract"], t["retract_f"], t["deretract_f"]
         self.z_hop, self.travel_f, self.min_travel = t["z_hop"], t["travel_f"], t["min_travel"]
@@ -105,6 +107,7 @@ class Writer:
             self.before_wipe = float(rb) / 100
         except ValueError:
             self.before_wipe = 0.0
+        self.role_wipe = program.settings.get("role_based_wipe_speed", "0").strip() == "1"   # Orca: wipe at print speed
         # the slicer's tool change extras, minus the part fan (fans follow each path)
         self.tc_extra = [ln for ln in program.toolchange_extra if not (ln.startswith("M106") and " P" not in ln)]
         self.out = []
@@ -113,6 +116,7 @@ class Writer:
         self.top = 0.0             # tallest material printed so far
         self.f = None
         self.accel = None
+        self.scv = None
         self.fans = {}
         self.obj = None
         self.type = None
@@ -121,6 +125,7 @@ class Writer:
         self.tool = program.first_tool
         self.last = None           # last path written
         self.last_pts = None       # its points, for the wipe
+        self.object_f = None       # feed of the last object (not tower) line: Orca's role-based wipe speed
         self.retracted = False
         self.touched = set()
 
@@ -134,7 +139,8 @@ class Writer:
 
     def retract_move(self):
         """Retract like the slicer: part in place, the rest wiping back along the last line (planar lines only:
-        a wipe along a ramp could drag into its higher part)."""
+        a wipe along a ramp could drag into its higher part). As Orca's Wipe: at most retraction speed x wipe
+        length / wipe speed is retracted during the wipe, the rest before it."""
         if self.retracted:
             return
         self.retracted = True
@@ -143,9 +149,6 @@ class Writer:
                 and math.dist(self.pos, pts[-1]) < 1e-6):
             self.emit(f"G1 E-{_fmt(self.retract)} F{_fmt(self.retract_f)}")
             return
-        before = self.retract * self.before_wipe
-        if before > 0:
-            self.emit(f"G1 E-{_fmt(before)} F{_fmt(self.retract_f)}")
         back = list(reversed(pts))
         route, left = [], self.wipe_dist
         for a, b in zip(back, back[1:]):
@@ -159,15 +162,19 @@ class Writer:
             route.append((b, d))
             left -= d
         total = sum(d for _, d in route)
-        rest = self.retract - before
-        if total <= 0:
-            self.emit(f"G1 E-{_fmt(rest)} F{_fmt(self.retract_f)}")
+        wipe_f = max(self.object_f if self.role_wipe and self.object_f else self.wipe_f, 600.0)  # Orca: >= 10 mm/s
+        before = self.retract * self.before_wipe
+        during = min(self.retract - before, self.retract_f * total / wipe_f)
+        before = self.retract - during
+        if before > 1e-6:
+            self.emit(f"G1 E-{before:.5f} F{_fmt(self.retract_f)}")
+        if during <= 1e-6:
             return
         self.emit(";WIPE_START")
         for (x, y), d in route:
-            self.emit(f"G1 X{_fmt(x)} Y{_fmt(y)} E-{rest * d / total:.5f} F{_fmt(self.wipe_f)}")
+            self.emit(f"G1 X{_fmt(x)} Y{_fmt(y)} E-{during * d / total:.5f} F{_fmt(wipe_f)}")
         self.emit(";WIPE_END")
-        self.pos, self.f = route[-1][0], self.wipe_f
+        self.pos, self.f = route[-1][0], wipe_f
         self.last_pts = None
 
     def deretract(self):
@@ -263,13 +270,24 @@ class Writer:
             self.obj = p.obj
         x0, y0 = p.pts[0]
         q = self.last
-        high = self.clear_z(x0, y0, p.z_at(0))
-        same_as_orca = (q is not None and q.tail and p.head and p.seq == q.seq + 1
-                        and p.tool == q.tool and high <= max(p.z, q.z) + 1e-6)
-        self.travel(x0, y0, p.z_at(0), (p.retract_before, p.hop_before) if same_as_orca else None, high)
+        z0 = p.z_at(0)
+        high = self.clear_z(x0, y0, z0)
+        if q is not None and high <= max(p.z, q.z) + 1e-6:
+            # nothing taller on the way: travel as the slicer did into this path (its retract and hop). Where the
+            # order changed: retract too if the travel is longer than the slicer's minimum, and no hop between two
+            # tower pieces (the slicer never hops inside its tower)
+            moved = not (q.tail and p.head and p.seq == q.seq + 1 and p.tool == q.tool)
+            far = self.pos is not None and math.dist(self.pos, (x0, y0)) > self.min_travel
+            in_tower = p.tower is not None and q.tower is not None
+            self.travel(x0, y0, z0, (p.retract_before or (moved and far), p.hop_before and not (moved and in_tower)), high)
+        else:
+            self.travel(x0, y0, z0, None, high)
         if p.accel is not None and p.accel != self.accel:
             self.emit(self.p.accel_format.format(a=_fmt(p.accel)))
             self.accel = p.accel
+        if p.scv is not None and p.scv != self.scv:
+            self.emit(f"SET_VELOCITY_LIMIT SQUARE_CORNER_VELOCITY={_fmt(p.scv)}")
+            self.scv = p.scv
         for k, v in p.fans.items():
             if self.fans.get(k) != v:
                 self.emit(f"M106 {k + ' ' if k else ''}S{v}")
@@ -295,6 +313,8 @@ class Writer:
             self.f = f
         self.pos = p.pts[-1]
         self.last_pts = p.pts if p.zs is None else None
+        if p.tower is None:
+            self.object_f = p.f[-1]
         self.top = max(self.top, p.top)
         if self.heights is not None:
             self.heights.add(p)
@@ -312,7 +332,7 @@ class Writer:
         t = _print_time(paths)
         if need <= 0 or t <= 0:
             return paths, 0.0
-        if t + extra >= need:
+        if t + extra >= need or not self.respect_min_layer_time:
             return self._fan(paths, k, t + extra, layer_index), 0.0
         factor = t / (need - extra)
         out = [replace(p, f=[max(f * factor, min(f, floor)) for f in p.f]) for p in paths]
