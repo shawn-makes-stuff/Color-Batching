@@ -1,13 +1,12 @@
 # ColorStack
 
-A multicolour print normally swaps filament on every layer that has more than one colour. ColorStack rewrites the
-sliced G-code so each colour prints several layers in a row before the next swap, wherever the nozzle can do that
-without hitting what is already printed. Fewer swaps, less purge waste, shorter prints. It works on G-code from
-Orca, Bambu Studio, PrusaSlicer, Anycubic and Cura, for Klipper or Marlin printers.
+A multicolour print normally swaps filament on every layer that has more than one colour. <br>ColorStack rewrites the
+sliced G-code so each colour prints several layers per colour in one go, wherever the nozzle can do so
+without colliding. <br>Fewer swaps = less purge waste, shorter prints. 
 
 ![Original and ColorStack playing side by side](docs/cube-example.gif)
 
-*Two-colour test cube: 49 colour changes and 1h10m as sliced, 19 and 40m after ColorStack.*
+*Example test cube: <br> Unprocessed file - 49 colour changes, 1h10m estimated print time <br> ColorStack - 19 colour changes, 40m estimated print time*
 
 ## Setup
 Python 3.11 or newer, then:
@@ -25,7 +24,7 @@ The app opens in your browser at http://127.0.0.1:8765.
    - **Cone angle**: the angle of the nozzle's taper, measured from vertical (half the full cone angle). From a
      side photo; most nozzles are 40-60°.
    - **Clear height**: how far the tip sticks out below the lowest part of the heater block, silicone sock or fan
-     duct.
+     duct. <br>In real world usage, the full clear height will almost never be utilized.
 2. **Enter them** in the app's Nozzle card and press Save defaults.
 3. **Slice** your multicolour model as usual and export the G-code.
 4. **Import** it in the app (top bar), press **Optimize file**, and check the two prints side by side.
