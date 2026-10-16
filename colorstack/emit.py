@@ -1,12 +1,17 @@
 """Write a band plan back out as G-code.
 
 Travels, retracts, Z hops and tool changes follow the file's own settings. A travel lifts above the tallest
-material printed so far, since inside a band other regions may stand higher than the current layer.
+material printed so far (with local lift: the tallest the nozzle could reach on the way), since inside a band
+other regions may stand higher than the current layer.
 Extrusion is written relative; a file that started absolute gets M83 after its start G-code and M82 back
 before its end G-code.
 """
 import math
 from dataclasses import replace
+
+import numpy as np
+
+from .plan import Grid, densify
 
 
 def _fmt(v):
@@ -17,12 +22,49 @@ def _print_time(paths):
     return sum(math.dist(p.pts[i], p.pts[i + 1]) / (p.f[i] / 60) for p in paths for i in range(len(p.e)) if p.f[i] > 0)
 
 
+class Heights:
+    """Tallest plastic printed so far, on a grid, for travels that lift only as high as they must."""
+
+    def __init__(self, program, res=0.5):
+        self.grid = Grid(program, res)
+        self.h = np.zeros(self.grid.shape)
+        self.pad = max(p.width for L in program.layers for p in L.paths) / 2 + res
+
+    def add(self, p):
+        r, c = self.grid.cells(densify(p, self.grid.res / 2)[0])
+        np.maximum.at(self.h, (r, c), p.top)
+
+    def max_near(self, a, b, radius):
+        """Tallest plastic within radius of the segment a-b (line width and grid step added)."""
+        g, radius = self.grid, radius + self.pad
+        c0 = max(0, int((min(a[0], b[0]) - radius - g.x0) / g.res))
+        c1 = min(g.shape[1], int((max(a[0], b[0]) + radius - g.x0) / g.res) + 2)
+        r0 = max(0, int((min(a[1], b[1]) - radius - g.y0) / g.res))
+        r1 = min(g.shape[0], int((max(a[1], b[1]) + radius - g.y0) / g.res) + 2)
+        if c0 >= c1 or r0 >= r1:
+            return 0.0
+        px, py = np.meshgrid(g.x0 + np.arange(c0, c1) * g.res, g.y0 + np.arange(r0, r1) * g.res)
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        n2 = dx * dx + dy * dy
+        t = np.clip(((px - a[0]) * dx + (py - a[1]) * dy) / n2, 0, 1) if n2 > 0 else 0.0
+        near = np.hypot(px - a[0] - t * dx, py - a[1] - t * dy) <= radius
+        sub = self.h[r0:r1, c0:c1][near]
+        return float(sub.max()) if sub.size else 0.0
+
+
 class Writer:
-    def __init__(self, program, swap_lift=1.0, stacked_fan=True, lift_wait=False):
+    def __init__(self, program, swap_lift=1.0, stacked_fan=True, lift_wait=False, min_layer_time=0.0,
+                 tower_between=False, local_lift=None):
+        """min_layer_time > 0 overrides the file's. tower_between: print the tower between a colour's stacked
+        layers (cooling time) instead of all right after the swap. local_lift (a Nozzle): travels lift above the
+        plastic that nozzle could reach on the way, not above the tallest point printed anywhere."""
         self.p = program
         self.swap_lift = swap_lift
         self.stacked_fan = stacked_fan
         self.lift_wait = lift_wait
+        self.tower_between = tower_between
+        self.nozzle = local_lift
+        self.heights = Heights(program) if local_lift is not None else None
         t = program.travel
         self.retract, self.retract_f, self.deretract_f = t["retract"], t["retract_f"], t["deretract_f"]
         self.z_hop, self.travel_f, self.min_travel = t["z_hop"], t["travel_f"], t["min_travel"]
@@ -37,6 +79,13 @@ class Writer:
         self.temps = [int(v) for v in temps] if temps else None
         # cooling (Orca/Bambu or PrusaSlicer names)
         self.min_layer_time = setting("slow_down_layer_time") or setting("slowdown_below_layer_time")
+        on = setting("slow_down_for_layer_cooling") or setting("cooling")     # per filament, Orca / Prusa
+        if self.min_layer_time and on:
+            self.min_layer_time = [t if on[min(k, len(on) - 1)] else 0.0 for k, t in enumerate(self.min_layer_time)]
+        self.min_layer_source = "file" if self.min_layer_time else "none"
+        if min_layer_time > 0:
+            self.min_layer_time = [float(min_layer_time)] * n
+            self.min_layer_source = "override"
         self.min_speed = setting("slow_down_min_speed") or setting("min_print_speed")
         self.fan_min = setting("fan_min_speed")
         self.fan_max = setting("fan_max_speed")
@@ -140,9 +189,20 @@ class Writer:
         self.pos = (x, y)
         self.deretract()
 
-    def travel(self, x, y, z, orca=None):
+    def clear_z(self, x, y, z):
+        """Height a travel from here to (x, y) at z must clear: the tallest plastic printed anywhere, or with
+        local lift the tallest within the nozzle's reach on the way (its cone at the tallest printed point
+        reaches no further; past clear_height the heater block could, so then the global top)."""
+        base = min(z, self.z) if self.z is not None else z
+        if (self.heights is None or self.pos is None or self.top <= base + 1e-6
+                or self.top - base > self.nozzle.clear_height):
+            return self.top
+        return self.heights.max_near(self.pos, (x, y), self.nozzle.reach(self.top - base))
+
+    def travel(self, x, y, z, orca=None, high=None):
         """orca = (retract, hop): the slicer's own choice, when this is the travel it planned between the same two
-        paths and nothing taller has been printed."""
+        paths and nothing taller is in the way. high: the height to clear (clear_z)."""
+        high = self.top if high is None else high
         if orca is not None and self.pos is not None and self.z is not None:
             retract, hop = orca
             if retract:
@@ -155,11 +215,11 @@ class Writer:
             d = math.dist(self.pos, (x, y))
             if d < 1e-4:
                 return
-            if d <= self.min_travel and self.top <= z + 1e-6:
+            if d <= self.min_travel and high <= z + 1e-6:
                 self._move_to(x, y, z)
                 return
         self.retract_move()
-        self.lift(max(self.top, z, self.z or 0.0) + self.z_hop)
+        self.lift(max(high, z, self.z or 0.0) + self.z_hop)
         self._move_to(x, y, z)
 
     def _end_object(self):
@@ -203,9 +263,10 @@ class Writer:
             self.obj = p.obj
         x0, y0 = p.pts[0]
         q = self.last
+        high = self.clear_z(x0, y0, p.z_at(0))
         same_as_orca = (q is not None and q.tail and p.head and p.seq == q.seq + 1
-                        and p.tool == q.tool and self.top <= max(p.z, q.z) + 1e-6)
-        self.travel(x0, y0, p.z_at(0), (p.retract_before, p.hop_before) if same_as_orca else None)
+                        and p.tool == q.tool and high <= max(p.z, q.z) + 1e-6)
+        self.travel(x0, y0, p.z_at(0), (p.retract_before, p.hop_before) if same_as_orca else None, high)
         if p.accel is not None and p.accel != self.accel:
             self.emit(self.p.accel_format.format(a=_fmt(p.accel)))
             self.accel = p.accel
@@ -235,12 +296,14 @@ class Writer:
         self.pos = p.pts[-1]
         self.last_pts = p.pts if p.zs is None else None
         self.top = max(self.top, p.top)
+        if self.heights is not None:
+            self.heights.add(p)
         self.last = p
 
-    def _cool(self, paths, tool, layer_index):
+    def _cool(self, paths, tool, layer_index, extra=0.0):
         """A region printed again straight on top of itself still gets the file's minimum layer time: slow it
-        like the slicer does (not below its minimum speed) and raise the fan by its rule.
-        Returns (paths, seconds still short)."""
+        like the slicer does (not below its minimum speed) and raise the fan by its rule. extra: seconds of other
+        printing before the next layer (the tower, with tower_between). Returns (paths, seconds still short)."""
         if not self.min_layer_time or not paths:
             return paths, 0.0
         k = tool if tool is not None and tool < len(self.min_layer_time) else 0
@@ -249,11 +312,11 @@ class Writer:
         t = _print_time(paths)
         if need <= 0 or t <= 0:
             return paths, 0.0
-        if t >= need:
-            return self._fan(paths, k, t, layer_index), 0.0
-        factor = t / need
+        if t + extra >= need:
+            return self._fan(paths, k, t + extra, layer_index), 0.0
+        factor = t / (need - extra)
         out = [replace(p, f=[max(f * factor, min(f, floor)) for f in p.f]) for p in paths]
-        t2 = _print_time(out)
+        t2 = _print_time(out) + extra
         self.slowed += 1
         if t2 < need - 0.05:
             self.short += 1
@@ -305,20 +368,28 @@ class Writer:
             for unit in band.order:
                 tool = unit[0]
                 self.change_tool(tool)
-                # tower paths first, right after the swap
-                for tower in (True, False):
-                    groups = [[p for owner, p in items if owner == unit and (p.tower is not None) == tower]
-                              for items in band.work]
-                    for j, (layer, mine) in enumerate(zip(band.layers, groups)):
-                        short = 0.0
-                        if mine:
-                            self.layer_start(layer)
-                            if j + 1 < len(groups) and groups[j + 1] and mine[0].tower is None:
-                                mine, short = self._cool(mine, tool, layer.index)
-                        for p in mine:
-                            self.path(p, layer.height)
-                        if short > 0.05 and self.lift_wait:
-                            self.wait(short)
+                items = [[p for owner, p in w if owner == unit] for w in band.work]
+                parts = [[p for p in ps if p.tower is None] for ps in items]
+                # tower right after the swap; with tower_between only the wipe, walls and grid between layers
+                late = ("wall", "grid") if self.tower_between else ()
+                first = [[p for p in ps if p.tower is not None and p.tower not in late] for ps in items]
+                between = [[p for p in ps if p.tower in late] for ps in items]
+                for layer, ps in zip(band.layers, first):
+                    if ps:
+                        self.layer_start(layer)
+                    for p in ps:
+                        self.path(p, layer.height)
+                for j, layer in enumerate(band.layers):
+                    mine, rest = parts[j], between[j]
+                    short = 0.0
+                    if mine or rest:
+                        self.layer_start(layer)
+                    if mine and j + 1 < len(parts) and parts[j + 1]:
+                        mine, short = self._cool(mine, tool, layer.index, _print_time(rest))
+                    for p in mine + rest:
+                        self.path(p, layer.height)
+                    if short > 0.05 and self.lift_wait:
+                        self.wait(short)
             for layer in band.layers:      # a layer with no extrusion still gets its commands
                 self.layer_start(layer)
         self._end_object()

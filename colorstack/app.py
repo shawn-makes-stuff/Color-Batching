@@ -5,6 +5,7 @@ import json
 import re
 import shutil
 import threading
+import time
 import urllib.request
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -17,48 +18,54 @@ ROOT = Path(__file__).resolve().parent.parent
 VIEWER = ROOT / "viewer" / "index.html"
 WORK = ROOT / "work"
 
-# key -> (label, unit, help)
+# key -> (label, unit, help); the README's settings table says the same
 HELP = {
-    "nozzle.measured": ("Measured", "", "Tick once tip diameter, cone angle and clear height are measured on your "
-                        "own nozzle. Until then they are placeholders."),
     "nozzle.tip_diameter": ("Tip diameter", "mm", "Flat face at the nozzle tip."),
     "nozzle.cone_angle": ("Cone angle", "°", "Cone half-angle from vertical."),
     "nozzle.clear_height": ("Clear height", "mm", "How far the tip sticks out below the heater block / sock / duct."),
     "nozzle.contact": ("Edge contact", "mm", "How much taller a neighbouring colour's edge may be while the nozzle "
                        "face slides past it. 0.2 = two layers per colour, 0.4 = three."),
     "stack.max_band_layers": ("Max layers per colour", "", "Most layers one colour prints before the next swap."),
-    "stack.surface_tolerance": ("Edge shift", "mm", "How far a colour edge on a visible surface may move. "
-                                "0 = never."),
+    "stack.surface_tolerance": ("Edge shift", "mm", "How far a colour edge on a visible surface may move. 0 = never."),
     "stack.min_piece": ("Min piece", "mm", "Shorter leftovers between handed-over pieces are handed over too."),
+    "stack.per_object": ("Per-object batching", "", "Finish one object's block before moving to the next, where "
+                         "that is faster (both ways are planned and the faster kept)."),
+    "stack.staggered": ("Staggered colours", "", "Each colour on its own schedule: fewer swaps where 3+ colours "
+                        "share layers. Both ways are planned, the faster kept. Slower processing on those files."),
     "stack.resolution": ("Resolution", "mm", "Sampling step for the collision planning."),
-    "nonplanar.smooth_tops": ("Non-planar top skin", "", "Replace the stair-stepped top lines of shallow curved / sloped "
-                              "tops with one continuous skin that follows the surface (after Ahlers' non-planar "
-                              "Slic3r)."),
+    "nonplanar.smooth_tops": ("Non-planar top skin", "", "Replace the stair-stepped top lines of shallow curved / "
+                              "sloped tops with one continuous skin that follows the surface."),
     "nonplanar.max_angle": ("Max angle", "°", "Steepest surface printed non-planar. Also capped by the nozzle: the "
                             "flat tip may touch the slope by at most Edge contact."),
     "nonplanar.min_area": ("Min area", "mm²", "Smallest region worth a non-planar skin."),
     "nonplanar.max_tread": ("Max tread", "mm", "A flat wider than this is a real flat, not a stair step."),
     "nonplanar.max_segment": ("Max segment", "mm", "Longest straight piece of a ramped line."),
-    "stack.per_object": ("Per-object batching", "", "Finish one object's block before moving to the next, where "
-                         "that is faster (both ways are planned and the faster kept)."),
-    "cooling.stacked_fan": ("Fan for stacked regions", "", "Raise the part fan on regions printed again straight on top "
-                            "of themselves, by the slicer's own fan rule (fan_min/max_speed, fan_cooling_layer_time)."),
-    "cooling.lift_wait": ("Lift and wait", "", "If a stacked region is still under the minimum layer time at minimum "
-                          "speed, lift clear and wait out the rest. Can leave ooze strings."),
-    "swap.lift": ("Swap lift", "mm", "Before each colour change, lift this far above the tallest point printed so far "
-                  "(at least the slicer's Z hop), so the printer's trip to the purge tray clears every stack."),
-    "export.folder": ("Save folder", "", "Where Save writes the processed G-code."),
-    "export.printer_host": ("Printer", "", "Moonraker address for Send to printer, e.g. 192.168.1.148 (port 80) or "
-                            "192.168.1.50:7125."),
-    "printer.max_velocity": ("Max velocity", "mm/s", "Fallback only: the estimate uses the limits the slicer wrote into the file."),
-    "printer.max_accel": ("Max accel", "mm/s²", "Klipper limit, for the time estimate."),
-    "printer.square_corner_velocity": ("Square corner velocity", "mm/s", "Klipper limit, for the time estimate."),
-    "printer.max_z_velocity": ("Max Z velocity", "mm/s", "Klipper limit, for the time estimate."),
-    "printer.max_z_accel": ("Max Z accel", "mm/s²", "Klipper limit, for the time estimate."),
+    "cooling.stacked_fan": ("Fan for stacked regions", "", "Raise the part fan on regions printed again straight on "
+                            "top of themselves, by the slicer's own fan rule."),
+    "cooling.lift_wait": ("Lift and wait", "", "If a stacked region is still under the minimum layer time at "
+                          "minimum speed, lift clear and wait out the rest. Can leave ooze strings."),
+    "cooling.min_layer_time": ("Min layer time", "s", "Minimum layer time for stacked regions. 0 = the file's own "
+                               "(per filament, where its slow-down is on)."),
+    "cooling.tower_between": ("Tower between layers", "", "Print the prime tower's walls and grid between a colour's "
+                              "stacked layers, as cooling time. The wipe still comes right after the swap."),
+    "swap.lift": ("Swap lift", "mm", "Before each colour change, lift this far above the tallest point printed so "
+                  "far (at least the slicer's Z hop), so the trip to the purge tray clears every stack."),
+    "travel.local_lift": ("Local travel lift", "", "Travels lift above the plastic the nozzle could reach on the way "
+                          "instead of above the tallest point printed anywhere. Faster, but trusts the G-code's "
+                          "heights: a curled edge or blob taller than the file can be hit."),
+    "export.printer_host": ("Printer", "", "Moonraker address for Send to printer, e.g. 192.168.1.20 or "
+                            "192.168.1.20:7125."),
+    "printer.max_velocity": ("Max velocity", "mm/s", "Fallback for the time estimate, for files without the "
+                             "slicer's machine limits."),
+    "printer.max_accel": ("Max accel", "mm/s²", "Fallback for the time estimate."),
+    "printer.square_corner_velocity": ("Square corner velocity", "mm/s", "Fallback for the time estimate."),
+    "printer.max_z_velocity": ("Max Z velocity", "mm/s", "Fallback for the time estimate."),
+    "printer.max_z_accel": ("Max Z accel", "mm/s²", "Fallback for the time estimate."),
 }
 
 state = {"input": None}
 busy = threading.Lock()
+progress = {"fraction": 0.0, "stage": "", "started": 0.0, "running": False}
 
 
 def safe_name(name):
@@ -100,6 +107,10 @@ def send_to_printer(path, host, start):
     return {"ok": True, "url": url, "printing": start, "moonraker": reply}
 
 
+def time_left(fraction, elapsed):
+    return elapsed * (1 - fraction) / fraction if fraction > 0.12 else None
+
+
 class Handler(BaseHTTPRequestHandler):
     def reply(self, code, body, ctype="application/json", extra=None):
         if not isinstance(body, bytes):
@@ -120,10 +131,18 @@ class Handler(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         if u.path == "/":
             self.reply(200, VIEWER.read_bytes(), "text/html; charset=utf-8")
+        elif u.path in ("/icon.svg", "/icon.png"):
+            self.reply(200, (VIEWER.parent / u.path[1:]).read_bytes(),
+                       "image/svg+xml" if u.path.endswith("svg") else "image/png")
         elif u.path == "/api/config":
             self.reply(200, config_payload())
         elif u.path == "/api/state":
             self.reply(200, state)
+        elif u.path == "/api/progress":
+            f, elapsed = progress["fraction"], time.time() - progress["started"] if progress["running"] else 0.0
+            left = time_left(f, elapsed) if progress["running"] else None
+            self.reply(200, {"running": progress["running"], "fraction": f, "stage": progress["stage"],
+                             "elapsed": elapsed, "left": left})
         elif u.path.startswith("/work/"):
             f = WORK / safe_name(u.path[6:])
             if not f.is_file():
@@ -146,17 +165,6 @@ class Handler(BaseHTTPRequestHandler):
                 (WORK / name).write_bytes(self.body())
                 state["input"] = name
                 self.reply(200, {"name": name, "url": f"/work/{name}"})
-            elif u.path == "/api/save":
-                req = json.loads(self.body())
-                src = WORK / safe_name(req["output"])
-                folder = Path(req["folder"]).expanduser()
-                if not src.is_file():
-                    return self.reply(404, {"error": "process a file first"})
-                if not folder.is_dir():
-                    return self.reply(400, {"error": f"folder not found: {folder}"})
-                dest = folder / src.name
-                shutil.copyfile(src, dest)
-                self.reply(200, {"path": str(dest)})
             elif u.path == "/api/send":
                 req = json.loads(self.body())
                 src = WORK / safe_name(req["output"])
@@ -170,10 +178,13 @@ class Handler(BaseHTTPRequestHandler):
                     return self.reply(404, {"error": f"{src.name} is not uploaded"})
                 if not busy.acquire(blocking=False):
                     return self.reply(409, {"error": "already processing"})
+                progress.update(fraction=0.0, stage="", started=time.time(), running=True)
                 try:
                     out = WORK / (src.name[:-6] + ".colorstack.gcode")
-                    result = run(str(src), str(out), apply(load_config(), req.get("config", {})))
+                    result = run(str(src), str(out), apply(load_config(), req.get("config", {})),
+                                 lambda f, stage: progress.update(fraction=f, stage=stage))
                 finally:
+                    progress["running"] = False
                     busy.release()
                 result["output"] = out.name
                 result["input"] = src.name

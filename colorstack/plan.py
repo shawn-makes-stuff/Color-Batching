@@ -12,6 +12,8 @@ from itertools import permutations
 import numpy as np
 from scipy.spatial import cKDTree
 
+from .tower import RunTower
+
 
 @dataclass
 class Nozzle:
@@ -43,6 +45,8 @@ class Band:
     work: list              # per layer: [(owner unit, Path)]
     ceded_mm: float
     visible_ceded_mm: float
+    origin: list | None = None      # per layer, per piece: the owner it started with
+    ceded_by: dict | None = None    # first owner -> [ceded mm, visible ceded mm]
 
     @property
     def tools(self):
@@ -158,6 +162,7 @@ class Samples:
     def __init__(self, step):
         self.step = step
         self.cache = {}
+        self.trees = {}
 
     def of(self, p):
         hit = self.cache.get(id(p))
@@ -167,8 +172,15 @@ class Samples:
         return hit[1]
 
     def tree(self, paths):
-        pts = [self.of(p)[0] for p in paths]
-        return cKDTree(np.vstack(pts)) if pts else None
+        """KD tree of the paths' samples, cached by the set of paths (the same sets come back many times; the
+        entry keeps the paths alive so their ids stay theirs)."""
+        key = tuple(map(id, paths))
+        hit = self.trees.get(key)
+        if hit is None:
+            pts = [self.of(p)[0] for p in paths]
+            hit = (tuple(paths), cKDTree(np.vstack(pts)) if pts else None)
+            self.trees[key] = hit
+        return hit[1]
 
 
 def _nearest(tree, pts, bound):
@@ -202,25 +214,43 @@ def unit_of(p, per_object):
     return (p.tool, p.obj if per_object else None)
 
 
-def plan_band(layers, order, samples, nozzle, opts):
-    """Print `layers` as one band with the units in `order`. None if a visible edge would move too far."""
+DONE = ("done", None)     # owner of material already printed
+
+
+def plan_band(layers, order, samples, nozzle, opts, work=None, starts=None):
+    """Print `layers` as one band with the units in `order`. None if a visible edge would move too far.
+    work: per layer [(owner, path)] when some of it is printed already (owner DONE: never handed over, every
+    later nozzle must clear it); starts: per unit, the band layer it starts at (the ones below are printed).
+    The band's `origin` gives, per piece, the owner it started with."""
     first = order[0]
-    work = [[(first if p.tool is None else unit_of(p, opts.per_object), p) for p in L.paths] for L in layers]
+    if work is None:
+        work = [[(first if p.tool is None else unit_of(p, opts.per_object), p) for p in L.paths] for L in layers]
+    work = list(work)
+    origin = [[o for o, _ in w] for w in work]
+    starts = starts or {}
     ceded = vis_ceded = 0.0
+    ceded_by = {}
     margin_mm = samples.step          # samples lie up to step/2 off the true line
     max_need = nozzle.reach(sum(L.height for L in layers) + 1.0) + margin_mm + 1.0
     layer_trees = [samples.tree([q for q in L.paths if q.tool is not None]) for L in layers]
-    for k in range(1, len(order)):
+    has_done = any(o == DONE for w in work for o, _ in w)
+    for k in range(0 if has_done else 1, len(order)):
         T = order[k]
-        earlier = set(order[:k])
+        earlier = set(order[:k]) | {DONE}
+        start = starts.get(T, 0)
         trees_T = []        # per band layer, after ceding
         trees_E = []
         for j, L in enumerate(layers):
+            if j < start:   # T printed this layer already
+                trees_T.append(None)
+                trees_E.append(None)
+                continue
             own_tree = samples.tree([p for o, p in work[j] if o == T])
-            new_work = []
-            for owner, p in work[j]:
+            new_work, new_origin = [], []
+            for (owner, p), first_owner in zip(work[j], origin[j]):
                 if owner not in earlier:
                     new_work.append((owner, p))
+                    new_origin.append(first_owner)
                     continue
                 pts, seg, ts = samples.of(p)
                 zs = sample_z(p, seg, ts)
@@ -238,6 +268,12 @@ def plan_band(layers, order, samples, nozzle, opts):
                     need = np.where(dz > 1e-6, nozzle.reach(dz) + margin_mm, -np.inf)
                     margin = np.minimum(margin, d - need)
                 mask = margin < p.width / 2
+                if owner == DONE:
+                    if mask.any():
+                        return None
+                    new_work.append((owner, p))
+                    new_origin.append(first_owner)
+                    continue
                 if j > 0:
                     # resting only on T's previous layer (printed later): hand it to T, or it prints in mid-air
                     on_T = _nearest(trees_T[j - 1], pts, p.width) < p.width / 2
@@ -247,6 +283,7 @@ def plan_band(layers, order, samples, nozzle, opts):
                     mask = absorb_short_runs(mask, opts.min_piece / samples.step)
                 if not mask.any():
                     new_work.append((owner, p))
+                    new_origin.append(first_owner)
                     continue
                 vis = np.full(len(pts), p.visible)
                 if p.visible:
@@ -255,15 +292,20 @@ def plan_band(layers, order, samples, nozzle, opts):
                     d_own = _nearest(own_tree, pts[vis & mask], opts.surface_tolerance + p.width + 1.0)
                     if ((d_own - p.width / 2) > opts.surface_tolerance).any():
                         return None
-                vis_ceded += float((vis & mask).sum()) * samples.step
+                v = float((vis & mask).sum()) * samples.step
+                vis_ceded += v
+                by = ceded_by.setdefault(first_owner, [0.0, 0.0])
+                by[1] += v
                 for flag, piece in split(p, seg, ts, mask):
                     if flag:
                         ceded += piece.length()
+                        by[0] += piece.length()
                     new_work.append((T if flag else owner, piece))
-            work[j] = new_work
+                    new_origin.append(first_owner)
+            work[j], origin[j] = new_work, new_origin
             trees_T.append(samples.tree([p for o, p in work[j] if o == T]))
             trees_E.append(samples.tree([p for o, p in work[j] if o in earlier]))
-    return Band(layers, list(order), work, ceded, vis_ceded)
+    return Band(layers, list(order), work, ceded, vis_ceded, origin, ceded_by)
 
 
 def _units_by_tool(group, per_object):
@@ -293,20 +335,23 @@ def _best_band(group, loaded, samples, nozzle, opts):
             b = plan_band(group, order, samples, nozzle, opts)
             if b is None:
                 continue
-            # purge-volume order was tried here: no gain on 2 colours, +2 swaps on 4-colour Stitch
+            # ordering by purge volume was tried: no gain with 2 colours, more swaps with 4
             key = (b.visible_ceded_mm, b.ceded_mm)
             if best is None or key < best_key:
                 best, best_key = b, key
     return best
 
 
-def plan(program, nozzle, opts):
-    """Greedy: grow each band one layer at a time while a valid plan exists."""
+def plan(program, nozzle, opts, progress=None):
+    """Greedy: grow each band one layer at a time while a valid plan exists. progress(fraction) as it goes."""
     samples = Samples(opts.resolution * 2)
     layers = program.layers
     bands, loaded, i = [], program.first_tool, 0
-    max_k = max(1, min(opts.max_band_layers, int(nozzle.clear_height / max(L.height for L in layers) + 1e-9)))
+    max_k = _max_layers(program, nozzle, opts)
+    done = _progress_at(layers) if progress else None
     while i < len(layers):
+        if progress:
+            progress(done[i])
         best = _best_band(layers[i:i + 1], loaded, samples, nozzle, opts)
         if best is None:
             raise RuntimeError(f"no valid plan for layer {layers[i].index}")
@@ -320,3 +365,119 @@ def plan(program, nozzle, opts):
         loaded = best.order[-1][0]
         i += len(best.layers)
     return bands
+
+
+def _progress_at(layers):
+    """Fraction of the planning done once layers[:i] are planned, for i = 0..n: layers weighted by colours
+    squared (a layer with one colour plans many times faster than one with four)."""
+    w = np.cumsum([0] + [max(1, len({p.tool for p in L.paths if p.tool is not None})) ** 2 for L in layers])
+    return w / w[-1]
+
+
+def _max_layers(program, nozzle, opts):
+    return max(1, min(opts.max_band_layers, int(nozzle.clear_height / max(L.height for L in program.layers) + 1e-9)))
+
+
+def plan_staggered(program, nozzle, opts, progress=None):
+    """Each unit on its own schedule. A run prints one unit's next layers as far as the units below could still
+    finish the window after it as a band. Next run: the most layers for no swap, else for one swap; ties go to a
+    unit not touching the one just printed. Returns (one single-unit band per run, (wipes kept, wipes to grid))."""
+    samples = Samples(opts.resolution * 2)
+    layers = program.layers
+    n = len(layers)
+    max_k = _max_layers(program, nozzle, opts)
+    own = [[(unit_of(p, opts.per_object), p) for p in L.paths if p.tool is not None] for L in layers]
+    units = list(dict.fromkeys(o for w in own for o, _ in w))
+    front = dict.fromkeys(units, 0)
+    reach = nozzle.reach(nozzle.clear_height) + 1.0
+    trees = {}
+
+    def eff(u):
+        """First layer with material u still has to print."""
+        j = front[u]
+        while j < n and all(o != u for o, _ in own[j]):
+            j += 1
+        front[u] = j
+        return j
+
+    def tree(j, u):
+        if (j, u) not in trees:
+            trees[(j, u)] = samples.tree([p for p in layers[j].paths if p.tool is not None
+                                          and unit_of(p, opts.per_object) == u])
+        return trees[(j, u)]
+
+    def touching(u, v, lo):
+        for j in range(lo, min(n, lo + max_k)):
+            a, b = tree(j, u), tree(j, v)
+            if a is not None and b is not None and (b.query(a.data, distance_upper_bound=reach)[0] < reach).any():
+                return True
+        return False
+
+    def run(u, lo, b, play, effs):
+        """u printing its layers up to b, the rest of `play` finishing the window after it in some order."""
+        groups = {}
+        for v in sorted((v for v in play if v != u), key=lambda v: (effs[v], v[0])):
+            groups.setdefault(v[0], []).append(v)
+        starts = {v: effs[v] - lo for v in play}
+        for perm in permutations(groups):
+            band = plan_band(layers[lo:b], [u] + [v for t in perm for v in groups[t]], samples, nozzle, opts,
+                             own[lo:b], starts)
+            if band is not None:
+                return band
+        return None
+
+    tower = RunTower(program)
+    done = _progress_at(layers) if progress else None
+    loaded, last, top = program.first_tool, None, 0     # top: layers below are printed by somebody
+    bands = []
+    while True:
+        effs = {u: eff(u) for u in units}
+        active = {u: e for u, e in effs.items() if e < n}
+        if not active:
+            break
+        if progress:
+            progress(done[min(active.values())])
+        cands = []
+        for u, e in active.items():
+            best = None
+            b = max(top, e + 1)
+            while b <= n:
+                play = [v for v, ev in active.items() if ev < b]
+                lo = min(active[v] for v in play)
+                if b - lo > max_k:
+                    break
+                band = run(u, lo, b, play, effs)
+                if band is None:
+                    break
+                best = (b, lo, band)
+                b += 1
+            if best is not None:
+                cands.append((u, e) + best)
+        if not cands:
+            raise RuntimeError(f"no valid run at layer {layers[min(active.values())].index}")
+        lo_all = min(active.values())
+        u, e, b, lo, band = max(cands, key=lambda c: (c[0][0] == loaded, c[2] - c[1],
+                                                      last is None or not touching(c[0], last, lo_all)))
+        # commit u's pieces: printed now (DONE) or handed to the unit that prints them later
+        mine = [[] for _ in range(b - lo)]
+        for j in range(b - lo):
+            keep = [(o, p) for o, p in own[lo + j] if o != u]
+            for (o, p), first_owner in zip(band.work[j], band.origin[j]):
+                if first_owner == u:
+                    keep.append((DONE if o == u else o, p))
+                    if o == u:
+                        mine[j].append(p)
+            own[lo + j] = keep
+        top = max(top, b)
+        tower_paths = (tower.wipe() if u[0] != loaded else []) + tower.complete(min(eff(v) for v in units))
+        start = min([e] + [j for j, _ in tower_paths])     # u has nothing to print below e
+        end = max([b] + [j + 1 for j, _ in tower_paths])    # above b: layers with nothing but tower
+        work = [[] for _ in range(end - start)]
+        for j, paths in tower_paths:
+            work[j - start] += [(u, p) for p in paths]
+        for j in range(e, b):
+            work[j - start] += [(u, p) for p in mine[j - lo]]
+        ceded, vis = band.ceded_by.get(u, (0.0, 0.0))
+        bands.append(Band(layers[start:end], [u], work, ceded, vis))
+        loaded, last = u[0], u
+    return bands, (tower.kept, tower.replaced)

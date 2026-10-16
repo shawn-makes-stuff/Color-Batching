@@ -50,6 +50,49 @@ def _grid_over(p, tpl):
     return [replace(p, pts=pts, e=es, f=fs, width=width, tower="grid", block=-1)]
 
 
+class RunTower:
+    """The tower for staggered runs. A run that swaps tools in wipes on a free block of the lowest tower layer not
+    printed yet; the run after which every unit is past some layers prints the rest of their tower, unused blocks
+    as grid."""
+
+    def __init__(self, program):
+        self.tpl = _grid_template(program)
+        self.layers = [[p for p in L.paths if p.tool is None] for L in program.layers]
+        self.next = 0              # tower layers below are printed
+        self.used = set()          # (layer, block) wiped on
+        self.kept = self.replaced = 0
+
+    def wipe(self):
+        """[(layer, paths)]: one free wipe block on the lowest unprinted tower layer, if it has one."""
+        j = self.next
+        if j >= len(self.layers):
+            return []
+        free = [p.block for p in self.layers[j] if p.tower == "wipe" and (j, p.block) not in self.used]
+        if not free:
+            return []
+        self.used.add((j, free[0]))
+        block = [p for p in self.layers[j] if p.tower == "wipe" and p.block == free[0]]
+        self.kept += len(block)
+        return [(j, block)]
+
+    def complete(self, upto):
+        """[(layer, paths)]: what is left of the tower layers below upto."""
+        out = []
+        for j in range(self.next, min(upto, len(self.layers))):
+            paths = []
+            for p in self.layers[j]:
+                if p.tower == "wipe" and (j, p.block) in self.used:
+                    continue
+                if p.tower == "wipe" and self.tpl is not None:
+                    paths += _grid_over(p, self.tpl)
+                    self.replaced += 1
+                else:
+                    paths.append(p)
+            out.append((j, paths))
+        self.next = max(self.next, upto)
+        return out
+
+
 def compensate(program, bands):
     """Rewrite each band's tower paths. Returns (wipe blocks kept, wipe blocks turned into grid)."""
     tpl = _grid_template(program)

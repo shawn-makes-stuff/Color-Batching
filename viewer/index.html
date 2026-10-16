@@ -4,25 +4,28 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ColorStack</title>
+<link rel="icon" type="image/png" sizes="256x256" href="icon.png">
+<link rel="icon" type="image/svg+xml" href="icon.svg">
 <style>
   :root {
     --bg: #f3f4f2; --panel: #ffffff; --panel-2: #f7f8f6; --text: #191b1a; --muted: #6b716d; --faint: #9aa09c;
     --line: #e2e4e1; --accent: #0f9f68; --accent-soft: #e3f5ec; --accent-text: #ffffff; --scene: #eceeeb;
-    --warn: #a15c07; --warn-soft: #fdf3dc; --bad: #c2410c; --shadow: 0 1px 2px rgba(0,0,0,.06), 0 4px 16px rgba(0,0,0,.06);
+    --bad: #c2410c; --shadow: 0 1px 2px rgba(0,0,0,.06), 0 4px 16px rgba(0,0,0,.06);
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
       --bg: #121413; --panel: #1a1c1b; --panel-2: #202321; --text: #e9ebe9; --muted: #9aa19c; --faint: #6c736e;
       --line: #2c302d; --accent: #34c98b; --accent-soft: #173326; --accent-text: #08130e; --scene: #161817;
-      --warn: #f2b54a; --warn-soft: #33270f; --bad: #fb923c; --shadow: 0 1px 2px rgba(0,0,0,.3), 0 4px 16px rgba(0,0,0,.3);
+      --bad: #fb923c; --shadow: 0 1px 2px rgba(0,0,0,.3), 0 4px 16px rgba(0,0,0,.3);
     }
   }
   :root[data-theme="dark"] {
     --bg: #121413; --panel: #1a1c1b; --panel-2: #202321; --text: #e9ebe9; --muted: #9aa19c; --faint: #6c736e;
     --line: #2c302d; --accent: #34c98b; --accent-soft: #173326; --accent-text: #08130e; --scene: #161817;
-    --warn: #f2b54a; --warn-soft: #33270f; --bad: #fb923c; --shadow: 0 1px 2px rgba(0,0,0,.3), 0 4px 16px rgba(0,0,0,.3);
+    --bad: #fb923c; --shadow: 0 1px 2px rgba(0,0,0,.3), 0 4px 16px rgba(0,0,0,.3);
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
          display: flex; flex-direction: column; height: 100vh; -webkit-font-smoothing: antialiased; }
   button, input, select { font: inherit; color: inherit; }
@@ -32,7 +35,7 @@
   header { height: 48px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 12px 0 10px;
            background: var(--panel); border-bottom: 1px solid var(--line); }
   .brand { display: flex; align-items: center; gap: 8px; font-weight: 650; font-size: 14px; letter-spacing: -.01em; white-space: nowrap; }
-  .brand i { width: 14px; height: 14px; border-radius: 4px; background: linear-gradient(135deg, var(--accent) 0 50%, #f2c94c 50% 100%); }
+  .brand img { width: 18px; height: 18px; }
   #fileName { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
   .icon-btn { width: 32px; height: 32px; flex: none; display: grid; place-items: center; border-radius: 8px; border: 0;
               background: transparent; cursor: pointer; color: var(--muted); }
@@ -55,7 +58,7 @@
   body.standalone .open-btn { display: inline-flex; }
 
   /* layout */
-  #stage { flex: 1; min-height: 0; display: flex; }
+  #stage { flex: 1; min-height: 0; display: flex; position: relative; }
   #app { width: 300px; min-width: 240px; max-width: 70vw; flex: none; position: relative; display: flex; flex-direction: column;
          background: var(--panel); border-right: 1px solid var(--line); }
   #app[hidden] { display: none; }
@@ -82,8 +85,6 @@
   details.card summary::after { content: "+"; font-size: 15px; line-height: 1; }
   details.card[open] summary::after { content: "\2013"; }
   details.card h4 { margin: 10px 0 2px; font-size: 11px; color: var(--faint); font-weight: 600; }
-  .note { font-size: 12px; color: var(--warn); background: var(--warn-soft); border-radius: 7px; padding: 6px 8px; margin-top: 6px; }
-  .note:empty, .note[hidden] { display: none; }
   .btn { height: 36px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); padding: 0 14px;
          cursor: pointer; font-weight: 600; white-space: nowrap; }
   .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); flex: 1; }
@@ -98,18 +99,28 @@
   /* export menu */
   .tools { display: flex; align-items: center; gap: 2px; padding-left: 8px; margin-left: 4px; border-left: 1px solid var(--line); }
   body.standalone .app-only { display: none; }
+  /* info boxes: label / value rows like Orca's estimate */
+  .stats.info { display: grid; grid-template-columns: auto auto; gap: 1px 14px; }
+  .stats.info:empty { display: none; }
+  .info b { grid-column: 1 / -1; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 3px; }
+  .info span:nth-child(even) { color: var(--muted); }
+  .info span:nth-child(odd) { text-align: right; font-weight: 600; }
+  .info span.msg { grid-column: 1 / -1; text-align: left; font-weight: 400; color: var(--muted); }
   body:not(.standalone) .standalone-only { display: none !important; }
   .spacer { flex: 1; }
   .btn.run { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; flex: none; }
   .btn.run svg { width: 16px; height: 16px; }
   .btn.run.busy svg { animation: spin .9s linear infinite; }
+  .btn.run { position: relative; overflow: hidden; }
+  .btn.run > :not(.prog) { position: relative; }
+  .btn.run .prog { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: currentColor; opacity: .18;
+                  transition: width .4s linear; }
   .icon-btn:disabled { opacity: .35; cursor: default; background: transparent; }
   .menu-wrap { position: relative; }
   .menu { position: absolute; top: 38px; left: 0; z-index: 20; width: 300px; padding: 10px; border-radius: 10px; background: var(--panel);
           border: 1px solid var(--line); box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 6px; }
   .menu[hidden] { display: none; }
-  .menu .mi { display: block; padding: 7px 8px; border-radius: 7px; color: var(--text); text-decoration: none; font-weight: 600; }
-  .menu .mi:hover { background: var(--panel-2); }
+  .menu .xbtn { display: flex; align-items: center; justify-content: center; flex: none; text-decoration: none; }
   .menu .msec { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; margin-top: 4px; }
   .btn.sm { height: 30px; padding: 0 10px; }
   .xrow { display: flex; gap: 6px; }
@@ -140,11 +151,7 @@
            font-variant-numeric: tabular-nums; pointer-events: none; max-width: calc(50% - 20px); backdrop-filter: blur(6px);
            white-space: nowrap; overflow: hidden; }
   .stats:empty { display: none; }
-  #statsA { left: 10px; } #statsB { left: calc(50% + 10px); }
-  .stats .tag { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
-  .stats .t { font-size: 15px; font-weight: 700; }
-  .stats .s { color: var(--muted); }
-  .stats .done { color: var(--accent); font-weight: 650; }
+  #statsB { left: calc(50% + 10px); }
   .divider { position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; background: var(--line); }
   #wrap.narrow .stats { max-width: calc(100% - 20px); }
   #wrap.narrow #statsB { top: calc(50% + 10px); left: 10px; }
@@ -153,17 +160,20 @@
           pointer-events: none; }
   #drop div { max-width: 340px; }
   #drop b { display: block; color: var(--text); font-size: 15px; margin-bottom: 4px; }
-  #legend { position: absolute; left: 10px; bottom: 10px; padding: 8px 10px; border-radius: 9px; font-size: 12px;
+  /* legend with the original's info box under it, same width */
+  #side { position: absolute; left: 10px; top: 10px; max-height: calc(100% - 120px); display: flex; flex-direction: column;
+          gap: 8px; pointer-events: none; }
+  #side .stats { position: static; max-width: none; }
+  #legend { padding: 8px 10px; border-radius: 9px; font-size: 12px; min-height: 0;
             background: color-mix(in srgb, var(--panel) 88%, transparent); border: 1px solid var(--line); box-shadow: var(--shadow);
-            pointer-events: none; max-height: 45%; overflow: hidden; backdrop-filter: blur(6px); }
+            overflow: hidden; backdrop-filter: blur(6px); }
   #legend:empty { display: none; }
   #legend div { display: flex; align-items: center; gap: 7px; white-space: nowrap; line-height: 1.65; }
   #legend i { width: 10px; height: 10px; border-radius: 3px; flex: none; }
   #legend b { display: block; margin-bottom: 2px; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
-  #wrap.narrow #legend { bottom: calc(50% + 10px); }
 
   /* layer rail */
-  #rail { width: 64px; flex: none; position: relative; border-left: 1px solid var(--line); background: var(--panel); }
+  #rail { width: 64px; position: absolute; right: 0; top: 0; bottom: 0; }
   #vs { position: absolute; left: 0; right: 0; top: 40px; bottom: 40px; touch-action: none; }
   #vs .vtrack { position: absolute; right: 14px; top: 0; bottom: 0; width: 4px; border-radius: 2px; background: var(--line); }
   #vs .vfill { position: absolute; right: 14px; width: 4px; border-radius: 2px; background: var(--accent); }
@@ -203,15 +213,14 @@
 <body>
 <header>
   <button class="icon-btn" id="appBtn" hidden title="Show / hide settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg></button>
-  <div class="brand"><i></i>ColorStack</div>
+  <div class="brand"><img src="icon.svg" alt="">ColorStack</div>
   <div class="tools app-only">
     <label class="icon-btn" id="importBtn" title="Import G-code"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="m7 8 5-5 5 5"/><path d="M5 15v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"/></svg><input type="file" id="upload" accept=".gcode" hidden></label>
     <div class="menu-wrap">
       <button class="icon-btn" id="exportBtn" title="Export (process a file first)" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 15v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"/></svg></button>
       <div class="menu" id="exportMenu" hidden>
-        <a class="mi" id="dlLink" href="#" download>Download G-code</a>
-        <div class="msec">Save to folder</div>
-        <div class="xrow"><input type="text" id="saveDir"><button class="btn sm" id="saveBtn">Save</button></div>
+        <a class="btn primary xbtn" id="dlLink" href="#" download>Export optimized file</a>
+        <button class="btn xbtn" id="saveAsBtn">Export as&hellip;</button>
         <div class="msec">Send to printer</div>
         <div class="xrow"><input type="text" id="host"><button class="btn sm" id="sendBtn">Send</button></div>
         <label class="toggle small"><input type="checkbox" id="startPrint">Start printing after upload</label>
@@ -231,9 +240,8 @@
   <div id="wrap">
     <canvas id="c"></canvas>
     <div class="divider"></div>
-    <div class="stats" id="statsA"></div>
-    <div class="stats" id="statsB"></div>
-    <div id="legend"></div>
+    <div class="stats info" id="statsB"></div>
+    <div id="side"><div id="legend"></div><div class="stats info" id="statsA"></div></div>
     <div id="drop"><div><b>No print loaded</b>Open an Orca G-code file. The original plays on the left and the ColorStack version on the right, on the same clock.</div></div>
   </div>
   <div id="rail">
@@ -471,6 +479,7 @@ function timeline(p) {
     out[i] = p.tseg[i] * scale + before[k];
   }
   p.time = out;
+  p.flush = before[p.swapsAt.length];
   p.swapTimes = Float64Array.from(p.swapsAt.map((s, i) => s * scale + before[i]));
   p.total = p.moveTime * scale + before[p.swapsAt.length];
 }
@@ -637,6 +646,91 @@ function rebuildNozzles(cfg) {
 const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 5000);
 camera.up.set(0, 0, 1);
 const controls = new OrbitControls(camera, canvas);
+const ISO = new THREE.Vector3(0.9, -1.3, 0.9).normalize();
+
+// ---------- view cube: Orca's preset views (Camera.cpp select_view; keys 0-6 as in Orca) ----------
+const CUBE = 84;                                        // css px, lower left corner
+const VIEW_DIRS = { top: [0, 0, 1], bottom: [0, 0, -1], front: [0, -1, 0], rear: [0, 1, 0], left: [-1, 0, 0], right: [1, 0, 0] };
+const KEY_VIEWS = ["iso", "top", "bottom", "front", "rear", "left", "right"];
+// BoxGeometry is Y-up; turned Z-up its six faces are, in material order:
+const CUBE_FACES = ["right", "left", "top", "bottom", "front", "rear"];
+const cubeScene = new THREE.Scene(), cubeCam = new THREE.OrthographicCamera(-0.9, 0.9, 0.9, -0.9, 0.1, 10);
+const cube = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1).rotateX(Math.PI / 2), []);
+cubeScene.add(cube);
+let cubeTex = [], hovered = -1;           // per face: [normal, highlighted] label textures; face under the pointer
+function cubeLabels() {
+  const css = getComputedStyle(root), get = (k) => css.getPropertyValue(k).trim();
+  const label = (name, hot) => {
+    const c = document.createElement("canvas");
+    c.width = c.height = 256;
+    const g = c.getContext("2d");
+    g.fillStyle = get(hot ? "--accent-soft" : "--panel"); g.fillRect(0, 0, 256, 256);
+    g.strokeStyle = get(hot ? "--accent" : "--line"); g.lineWidth = 12; g.strokeRect(6, 6, 244, 244);
+    g.fillStyle = get("--text"); g.font = "600 64px system-ui, sans-serif"; g.textAlign = "center"; g.textBaseline = "middle";
+    g.fillText(name[0].toUpperCase() + name.slice(1), 128, 132);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = renderer.capabilities.getMaxAnisotropy();     // faces seen at an angle stay sharp
+    return tex;
+  };
+  for (const t of cubeTex.flat()) t.dispose();
+  for (const m of cube.material) m.dispose();
+  cubeTex = CUBE_FACES.map((name) => [label(name, false), label(name, true)]);
+  cube.material = cubeTex.map(([normal], k) => new THREE.MeshBasicMaterial({ map: k === hovered ? cubeTex[k][1] : normal }));
+}
+// the six flat views are orthographic, as in Orca; rotating away from one goes back to perspective
+const ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 5000), flatQuat = new THREE.Quaternion();
+let flat = false;
+function setView(name) {
+  flat = false;
+  if (name === "iso") { framed = false; frame(); return; }
+  const v = new THREE.Vector3(...VIEW_DIRS[name]);
+  if (v.z) v.y = -1e-3;     // straight down / up: +Y (top) or -Y (bottom) at the top of the screen, as Orca
+  const t = controls.target, d = camera.position.distanceTo(t);
+  camera.position.copy(t).addScaledVector(v.normalize(), d);
+  controls.update();
+  flat = true;
+  flatQuat.copy(camera.quaternion);
+}
+// the camera to draw with: in a flat view an orthographic one matching the perspective view at the target, so
+// zoom and pan (which move the perspective camera) carry over
+function viewCamera() {
+  if (!flat) return camera;
+  const hh = camera.position.distanceTo(controls.target) * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+  Object.assign(ortho, { left: -hh * camera.aspect, right: hh * camera.aspect, top: hh, bottom: -hh });
+  ortho.position.copy(camera.position);
+  ortho.quaternion.copy(camera.quaternion);
+  ortho.updateProjectionMatrix();
+  ortho.updateMatrixWorld();
+  return ortho;
+}
+const pick = new THREE.Raycaster(), down = new THREE.Vector2();
+function cubeFace(e) {                     // the cube face under the pointer, or -1
+  const r = canvas.getBoundingClientRect(), x = e.clientX - r.left - 8, y = e.clientY - r.top - (r.height - 8 - CUBE);
+  if (x < 0 || y < 0 || x > CUBE || y > CUBE || !prints.some(Boolean)) return -1;
+  pick.setFromCamera(new THREE.Vector2((x / CUBE) * 2 - 1, 1 - (y / CUBE) * 2), cubeCam);
+  const hit = pick.intersectObject(cube)[0];
+  return hit ? hit.face.materialIndex : -1;
+}
+canvas.addEventListener("pointermove", (e) => {
+  const k = e.buttons ? -1 : cubeFace(e);
+  if (k === hovered) return;
+  if (hovered >= 0) cube.material[hovered].map = cubeTex[hovered][0];
+  if (k >= 0) cube.material[k].map = cubeTex[k][1];
+  hovered = k;
+  canvas.style.cursor = k >= 0 ? "pointer" : "";
+});
+canvas.addEventListener("pointerdown", (e) => down.set(e.clientX, e.clientY));
+canvas.addEventListener("pointerup", (e) => {
+  if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 4) return;      // a drag, not a click
+  const k = cubeFace(e);
+  if (k >= 0) setView(CUBE_FACES[k]);
+});
+addEventListener("keydown", (e) => {
+  if (/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName) || e.altKey || !/^[0-6]$/.test(e.key)) return;
+  e.preventDefault();
+  setView(KEY_VIEWS[+e.key]);
+});
 // shared by both prints: layer range (by z) and colour mode
 const U = { uMode: { value: 0 }, uZmin: { value: -1e9 }, uZmax: { value: 1e9 } };
 const clipLo = new THREE.Plane(new THREE.Vector3(0, 0, 1), 1e6), clipHi = new THREE.Plane(new THREE.Vector3(0, 0, -1), 1e6);
@@ -651,6 +745,7 @@ const TEMPLATE_INDEX = [0,1,2, 0,2,3, 0,3,4, 0,4,5, 0,5,6, 0,6,1, 5,4,7, 5,7,6];
 function applyScene() {
   const bg = getComputedStyle(root).getPropertyValue("--scene").trim();
   for (const s of scenes) s.background = new THREE.Color(bg);
+  cubeLabels();
 }
 applyScene();
 
@@ -712,7 +807,7 @@ function frame() {
   const radius = 0.5 * Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2]);
   const dist = (radius / Math.sin(THREE.MathUtils.degToRad(camera.fov / 2))) * 1.35;
   controls.target.copy(c);
-  camera.position.copy(c).addScaledVector(new THREE.Vector3(0.9, -1.3, 0.9).normalize(), dist);
+  camera.position.copy(c).addScaledVector(ISO, dist);
   controls.update();
 }
 
@@ -832,11 +927,7 @@ function upperBound(arr, v) { let lo = 0, hi = arr.length; while (lo < hi) { con
 function update() {
   const T = Math.min(state.t, maxTotal());
   prints.forEach((p, i) => {
-    const el = $(i ? "statsB" : "statsA");
-    if (!p) {
-      el.innerHTML = i === 1 && prints[0] && appMode ? '<span class="s">Optimize the file to see the ColorStack version here</span>' : "";
-      return;
-    }
+    if (!p) return;
     const n = upperBound(p.time, T);
     const uni = p.mesh.material.uniforms;
     const noz = nozzles[i];
@@ -855,12 +946,6 @@ function update() {
       noz.visible = false;
     }
     p.travLines.geometry.setDrawRange(0, (n ? p.travAt[n - 1] : 0) * 2);
-    const swapsDone = upperBound(p.swapTimes, T);
-    const done = T >= p.total;
-    el.innerHTML = `<span class="tag"></span><span class="t">${fmt(Math.min(T, p.total))}</span>
-      <span class="s">/ ${fmt(p.total)} &middot; ${swapsDone}/${p.swapsAt.length} swaps</span>${done ? '<span class="done">done</span>' : ""}`;
-    el.firstChild.textContent = i ? "ColorStack" : "Original";
-    el.title = p.name + (p.real ? ` (estimate ${fmt(p.real)})` : "");
   });
   const [w0, w1] = playWindow();
   $("time").value = w1 > w0 ? Math.round(((T - w0) / (w1 - w0)) * 1000) : 1000;
@@ -887,8 +972,9 @@ function render(now) {
   if (canvas.width !== Math.floor(w * devicePixelRatio) || canvas.height !== Math.floor(h * devicePixelRatio)) {
     renderer.setSize(w, h, false);
   }
+  if (flat && camera.quaternion.angleTo(flatQuat) > 1e-3) flat = false;     // rotated away: perspective again
   // draw only when something that affects the picture changed (500k-segment files are heavy)
-  const sig = [w, h, ...camera.position.toArray(), ...camera.quaternion.toArray(), U.uMode.value, U.uZmin.value, U.uZmax.value,
+  const sig = [w, h, flat, hovered, ...camera.position.toArray(), ...camera.quaternion.toArray(), U.uMode.value, U.uZmin.value, U.uZmax.value,
     clipLo.constant, clipHi.constant, scenes[0].background?.getHex(), $("travel").checked,
     ...prints.map((p) => (p ? `${p.mesh.id},${p.mesh.geometry.instanceCount},${p.travLines.geometry.drawRange.count},${p.mesh.material.uniforms.uFrac.value.toFixed(3)}` : "-")),
     ...nozzles.map((m) => `${m.visible},${m.position.x.toFixed(3)},${m.position.y.toFixed(3)},${m.position.z.toFixed(3)}`)].join();
@@ -899,14 +985,43 @@ function render(now) {
   const vw = narrow ? w : w / 2, vh = narrow ? h / 2 : h;
   camera.aspect = vw / vh;
   camera.updateProjectionMatrix();
+  const cam = viewCamera();
   for (let i = 0; i < 2; i++) {
     const x = narrow ? 0 : i * vw, y = narrow ? (i ? 0 : vh) : 0;
     renderer.setViewport(x, y, vw, vh);
     renderer.setScissor(x, y, vw, vh);
-    renderer.render(scenes[i], camera);
+    renderer.render(scenes[i], cam);
   }
+  if (!prints.some(Boolean)) return;          // nothing to orient: no cube
+  cubeCam.position.set(0, 0, 3).applyQuaternion(camera.quaternion);
+  cubeCam.quaternion.copy(camera.quaternion);
+  renderer.setViewport(8, 8, CUBE, CUBE);
+  renderer.setScissor(8, 8, CUBE, CUBE);
+  renderer.autoClear = false;
+  renderer.clearDepth();
+  renderer.render(cubeScene, cubeCam);
+  renderer.autoClear = true;
 }
 requestAnimationFrame(render);
+
+// ---------- info boxes: the app's estimate when there is one, else the file's own times ----------
+function infoBoxes() {
+  prints.forEach((p, i) => {
+    const el = $(i ? "statsB" : "statsA");
+    if (!p) {
+      el.innerHTML = i === 1 && prints[0] && appMode
+        ? '<span class="msg">Optimize the file to see the ColorStack version here</span>' : "";
+      return;
+    }
+    const e = p.est, swaps = e ? e.swaps : p.swapsAt.length, flush = e ? e.swap_s : p.flush, total = e ? e.total_s : p.total;
+    el.innerHTML = `<b>${i ? "ColorStack" : "Original"}</b>
+      <span>Filament change times</span><span>${swaps}</span>
+      <span>Flush time</span><span>${fmt(flush)}</span>
+      <span>Model printing time</span><span>${fmt(total - flush)}</span>
+      <span>Total time</span><span>${fmt(total)}</span>`;
+    el.title = p.name;
+  });
+}
 
 // ---------- loading ----------
 async function load(i, file, real) {
@@ -921,6 +1036,7 @@ async function load(i, file, real) {
   frame();
   setLayers();
   legend();
+  infoBoxes();
   state.t = maxTotal();
   update();
   if (viewParams) viewParams();
@@ -928,8 +1044,7 @@ async function load(i, file, real) {
 const loadUrl = (i, url, name, real) => fetch(url).then((r) => r.text()).then((text) => load(i, { name: name || url, text: async () => text }, real));
 function unload(i) {
   clear(i);
-  $(i ? "statsB" : "statsA").innerHTML = "";
-  setLayers(); legend(); update();
+  setLayers(); legend(); infoBoxes(); update();
   if (!prints[0] && !prints[1]) $("drop").style.display = "";
 }
 
@@ -980,16 +1095,17 @@ async function initApp() {
     return `<div class="f"><label class="lab" for="${id}" title="${esc(f.help)}">${esc(f.label)}</label>
       <span class="num"><input type="number" id="${id}" step="${f.type === "int" ? 1 : "any"}" value="${f.value}"><span>${esc(f.unit)}</span></span></div>`;
   };
-  const HIDDEN = new Set(["export.folder", "export.printer_host"]);
+  const HIDDEN = new Set(["export.printer_host"]);
   const MAIN = {
-    "Stacking": ["nozzle.contact", "stack.max_band_layers", "stack.surface_tolerance", "stack.per_object"],
-    "Cooling": ["cooling.stacked_fan", "cooling.lift_wait"],
+    "Stacking": ["nozzle.contact", "stack.max_band_layers", "stack.surface_tolerance", "stack.per_object",
+                 "stack.staggered"],
+    "Cooling": ["cooling.min_layer_time", "cooling.stacked_fan", "cooling.tower_between", "cooling.lift_wait"],
     "Non-planar": ["nonplanar.smooth_tops", "nonplanar.max_angle", "nonplanar.min_area"],
-    "Nozzle": ["nozzle.tip_diameter", "nozzle.cone_angle", "nozzle.clear_height", "nozzle.measured"],
+    "Nozzle": ["nozzle.tip_diameter", "nozzle.cone_angle", "nozzle.clear_height"],
   };
   const used = new Set([...Object.values(MAIN).flat(), ...HIDDEN]);
   const titles = { stack: "Stacking", nozzle: "Nozzle", nonplanar: "Non-planar tops", cooling: "Cooling",
-                   swap: "Colour changes", export: "Export", printer: "Fallback motion limits" };
+                   swap: "Colour changes", travel: "Travel", export: "Export", printer: "Fallback motion limits" };
   const advanced = cfg.sections.map((sec) => {
     const keys = sec.fields.map((f) => `${sec.name}.${f.key}`).filter((k) => !used.has(k));
     return keys.length ? `<h4>${titles[sec.name] || sec.name}</h4>${keys.map(field).join("")}` : "";
@@ -998,11 +1114,11 @@ async function initApp() {
     <div id="appScroll">
       <button class="btn primary run" id="processBtn" title="Restack colours, apply the options below and estimate the time">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m13 2-9 12h7l-1 8 9-12h-7z"/></svg>
-        <span id="processLabel">Optimize file</span></button>
+        <span id="processLabel">Optimize file</span><span class="prog" id="procBar"></span></button>
       <div id="result"></div>
       <div id="err"></div>
       ${Object.entries(MAIN).map(([title, keys]) => `<section class="card"><h3>${title}</h3>${keys.map(field).join("")}
-        ${title === "Nozzle" ? '<div class="note" id="measWarn">Placeholder values: measure your nozzle and tick Measured.</div>' : ""}</section>`).join("")}
+</section>`).join("")}
       <details class="card"><summary>Advanced</summary>${advanced}</details>
     </div>
     <div id="appFoot"><span class="small" id="panelHint">Import a G-code file to start</span><span class="spacer"></span><button class="link" id="saveCfg" title="Save these settings as the defaults">Save defaults</button></div>
@@ -1035,8 +1151,6 @@ async function initApp() {
     }
     return out;
   };
-  const warn = () => { $("measWarn").hidden = $("cfg-nozzle-measured").checked; };
-  $("cfg-nozzle-measured").onchange = warn; warn();
   const syncNozzle = () => rebuildNozzles({ tip_diameter: +$("cfg-nozzle-tip_diameter").value || 1,
     cone_angle: +$("cfg-nozzle-cone_angle").value || 45, clear_height: +$("cfg-nozzle-clear_height").value || 2 });
   for (const k of ["tip_diameter", "cone_angle", "clear_height"]) $(`cfg-nozzle-${k}`).addEventListener("input", syncNozzle);
@@ -1067,14 +1181,15 @@ async function initApp() {
         ${row("Total", short(o.total_s), short(p.total_s), "total")}
       </table>
       <div class="meta">${o.source === "slicer estimate" ? `Times from the slicer's own estimate, ${short(o.swap_each_s)} per colour change.` : "Times from ColorStack's motion estimate."}
-        ${r.cooled_groups ? `<br>${r.cooled_groups} stacked regions slowed to the file's minimum layer time${r.cooled_short ? ` (${r.cooled_short} still under it at minimum speed${r.waits ? `, ${r.waits} lift-and-waits` : ""})` : ""}.` : ""}
+        ${r.min_layer_time && r.min_layer_time.length ? `<br>Minimum layer time ${[...new Set(r.min_layer_time)].join(" / ")} s (${r.min_layer_source === "override" ? "your setting" : "from the file"}).` : ""}
+        ${r.cooled_groups ? `<br>${r.cooled_groups} stacked regions slowed to the minimum layer time${r.cooled_short ? ` (${r.cooled_short} still under it at minimum speed${r.waits ? `, ${r.waits} lift-and-waits` : ""})` : ""}.` : ""}
         ${r.fanned_paths ? `<br>Part fan raised on ${r.fanned_paths} stacked lines.` : ""}
         ${r.per_object ? "<br>Per-object batching used." : ""}
+        ${r.staggered ? "<br>Staggered colours used." : ""}
         ${r.visible_ceded_mm > 0.5 ? `<br>Colour edges moved on visible surfaces: ${r.visible_ceded_mm.toFixed(0)} mm.` : ""}</div>
     </section>`;
   };
 
-  $("saveDir").value = meta["export.folder"].value;
   $("host").value = meta["export.printer_host"].value;
   $("exportBtn").onclick = (e) => { e.stopPropagation(); $("exportMenu").hidden = !$("exportMenu").hidden; };
   $("exportMenu").onclick = (e) => e.stopPropagation();
@@ -1086,9 +1201,16 @@ async function initApp() {
     $("dlLink").setAttribute("download", output);
     $("exportMsg").textContent = "";
     const msg = (t, bad) => { $("exportMsg").textContent = t; $("exportMsg").style.color = bad ? "var(--bad)" : "var(--accent)"; };
-    $("saveBtn").onclick = async () => {
-      const r = await fetch("/api/save", { method: "POST", body: JSON.stringify({ output, folder: $("saveDir").value }) });
-      const j = await r.json(); msg(r.ok ? `Saved to ${j.path}` : j.error, !r.ok);
+    $("saveAsBtn").onclick = async () => {
+      if (!window.showSaveFilePicker) return $("dlLink").click();     // no save dialog in this browser: plain download
+      try {
+        const file = await showSaveFilePicker({ suggestedName: output,
+          types: [{ description: "G-code", accept: { "text/plain": [".gcode"] } }] });
+        const w = await file.createWritable();
+        await w.write(await (await fetch(`/work/${encodeURIComponent(output)}`)).blob());
+        await w.close();
+        msg(`Saved ${file.name}`);
+      } catch (e) { if (e.name !== "AbortError") msg(e.message, true); }
     };
     $("sendBtn").onclick = async () => {
       const start = $("startPrint").checked;
@@ -1124,6 +1246,18 @@ async function initApp() {
     $("err").textContent = ""; $("result").innerHTML = "";
     $("processBtn").disabled = true; $("processBtn").classList.add("busy"); $("processLabel").textContent = "Optimizing…";
     $("panelHint").textContent = "Optimizing…";
+    let live = true;
+    const tick = setInterval(async () => {
+      try {
+        const p = await (await fetch("/api/progress")).json();
+        if (!live || !p.running) return;
+        const pct = Math.round(p.fraction * 100);
+        $("procBar").style.width = pct + "%";
+        $("processLabel").textContent = `Optimizing ${pct}%` + (p.left == null ? ""
+          : ` · ${p.left < 60 ? Math.max(5, Math.ceil(p.left / 5) * 5) + "s" : short(p.left)} left`);
+        $("panelHint").textContent = p.stage;
+      } catch {}
+    }, 500);
     try {
       const r = await fetch("/api/process", { method: "POST", body: JSON.stringify({ input: current, config: read() }) });
       const j = await r.json();
@@ -1135,6 +1269,9 @@ async function initApp() {
         loadUrl(1, `/work/${encodeURIComponent(j.output)}`, j.output, j.processed),
       ]);
     } catch (e) { $("err").textContent = "Processing failed: " + e.message; }
+    live = false;
+    clearInterval(tick);
+    $("procBar").style.width = "0";
     $("processBtn").disabled = false; $("processBtn").classList.remove("busy"); $("processLabel").textContent = "Optimize file";
     $("panelHint").textContent = $("exportBtn").disabled ? "Set the options, then Optimize file" : "Done: export from the top bar";
   };

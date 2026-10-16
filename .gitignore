@@ -3,3 +3,4 @@ work/
 samples/out/
 samples/models/out/
 colorstack.toml
+stash/

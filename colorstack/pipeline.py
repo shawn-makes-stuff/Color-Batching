@@ -5,10 +5,10 @@ import tomllib
 from pathlib import Path
 
 from .emit import Writer
-from .estimate import anchor, estimate, file_estimate, machine_limits, stamp_progress
+from .estimate import anchor, estimate, file_estimate, machine_limits, stamp_progress, swap_each
 from .gcode import parse
 from .nonplanar import SmoothOptions, smooth_tops
-from .plan import Nozzle, Options, plan
+from .plan import Nozzle, Options, plan, plan_staggered
 from .reader import load
 from .tower import compensate
 
@@ -16,7 +16,6 @@ CONFIG_PATH = Path(__file__).resolve().parent.parent / "colorstack.toml"
 
 DEFAULTS = {
     "nozzle": {
-        "measured": False,
         "tip_diameter": 1.0,
         "cone_angle": 45.0,
         "clear_height": 2.0,
@@ -27,6 +26,7 @@ DEFAULTS = {
         "surface_tolerance": 0.0,
         "min_piece": 2.0,
         "per_object": True,        # plan with and without, keep the faster
+        "staggered": True,         # also plan each colour on its own schedule, keep the faster
         "resolution": 0.1,
     },
     "nonplanar": {
@@ -39,13 +39,17 @@ DEFAULTS = {
     "cooling": {
         "stacked_fan": True,
         "lift_wait": False,
+        "min_layer_time": 0.0,     # seconds; 0 = the file's own per filament
+        "tower_between": False,
     },
     "swap": {
         "lift": 1.0,
     },
+    "travel": {
+        "local_lift": False,
+    },
     "export": {
-        "folder": str(Path.home() / "Desktop"),
-        "printer_host": "192.168.1.148",
+        "printer_host": "",
     },
     "printer": {                  # only for files without the slicer's machine limits
         "max_velocity": 500.0,
@@ -101,10 +105,17 @@ def _stamp_estimate(lines, seconds):
                 break
 
 
-def run(input_path, output_path, cfg):
-    """Process input_path into output_path. Returns a JSON-able summary."""
+PLAN_WEIGHT = {False: 22.0, True: 41.0}   # relative cost of a banded / staggered plan, measured on a 4-colour file
+WRITE_WEIGHT = 3.0                         # write + time one plan
+
+
+def run(input_path, output_path, cfg, progress=None):
+    """Process input_path into output_path. Returns a JSON-able summary. progress(fraction, stage) as it goes,
+    the fraction weighted by what each stage costs on a 4-colour file."""
+    report = progress or (lambda fraction, stage: None)
     nz, st, npl = cfg["nozzle"], cfg["stack"], cfg["nonplanar"]
     nozzle = Nozzle(nz["tip_diameter"] / 2, nz["cone_angle"], nz["clear_height"], nz["contact"])
+    report(0.0, "Reading the file")
     prog = parse(input_path)
     ramped = 0
     if npl["smooth_tops"]:
@@ -113,26 +124,54 @@ def run(input_path, output_path, cfg):
                                                  min_area=npl["min_area"]), nozzle)
     lim = machine_limits(prog.settings, cfg["printer"])
     original = load(input_path)
+    report(0.05, "Timing the original")
+    o = estimate(original, lim)
+    slicer = file_estimate(original)
+    each, _ = swap_each(o, slicer, lim)
+    co = cfg["cooling"]
+    # plan every way asked for that can differ, keep the fastest (swaps included). Per-object units are the
+    # tools themselves when no tool spans two objects; staggering gains nothing with at most two colours a layer.
+    tooled = [p for L in prog.layers for p in L.paths if p.tool is not None]
+    split_objects = len({(p.tool, p.obj) for p in tooled}) > len({p.tool for p in tooled})
+    many_colours = any(len({p.tool for p in L.paths if p.tool is not None}) > 2 for L in prog.layers)
+    variants = [(s, po) for s in ([False, True] if st["staggered"] and many_colours else [False])
+                for po in ([False, True] if st["per_object"] and split_objects else [False])]
+    total_w = sum(PLAN_WEIGHT[s] + WRITE_WEIGHT for s, _ in variants)
+    at = 0.1
     best = None
-    for per_object in ([False, True] if st["per_object"] else [False]):
+    for staggered, per_object in variants:
         opts = Options(int(st["max_band_layers"]), st["surface_tolerance"], st["resolution"], st["min_piece"],
                        per_object)
-        bands = plan(prog, nozzle, opts)
-        wipes = compensate(prog, bands)
-        notes = [f"COLORSTACK bands={len(bands)} multi_tool_bands={sum(len(b.tools) > 1 for b in bands)}",
+        span = 0.87 * PLAN_WEIGHT[staggered] / total_w
+        stage = "Planning staggered colours" if staggered else "Planning colour bands"
+
+        def planned(f, a=at, s=span, name=stage):
+            report(a + s * f, name)
+        if staggered:
+            bands, wipes = plan_staggered(prog, nozzle, opts, planned)
+        else:
+            bands = plan(prog, nozzle, opts, planned)
+            wipes = compensate(prog, bands)
+        at += span
+        report(at, "Writing and timing")
+        notes = [f"COLORSTACK bands={len(bands)} multi_tool_bands={sum(len(b.tools) > 1 for b in bands)} "
+                 f"staggered={staggered}",
                  f"COLORSTACK ceded_mm={sum(b.ceded_mm for b in bands):.1f} "
                  f"visible_ceded_mm={sum(b.visible_ceded_mm for b in bands):.1f}",
                  f"COLORSTACK nozzle tip_diameter={nz['tip_diameter']} cone_angle={nz['cone_angle']} "
-                 f"clear_height={nz['clear_height']} contact={nz['contact']} measured={nz['measured'] is True}"]
-        writer = Writer(prog, cfg["swap"]["lift"], cfg["cooling"]["stacked_fan"], cfg["cooling"]["lift_wait"])
+                 f"clear_height={nz['clear_height']} contact={nz['contact']}"]
+        writer = Writer(prog, cfg["swap"]["lift"], co["stacked_fan"], co["lift_wait"], co["min_layer_time"],
+                        co["tower_between"], nozzle if cfg["travel"]["local_lift"] else None)
         lines = writer.write(bands, notes)
         steps = []
         est = estimate(lines, lim, steps)
-        if best is None or est["motion_s"] < best[0]["motion_s"]:
-            best = (est, steps, lines, per_object, bands, wipes, writer)
-    p, steps, lines, per_object, bands, (wipes_kept, wipes_gridded), writer = best
-    o = estimate(original, lim)
-    anchor(o, p, file_estimate(original), lim)
+        at += 0.87 * WRITE_WEIGHT / total_w
+        total = est["motion_s"] + est["dwell_s"] + est["swaps"] * each
+        if best is None or total < best[0]:
+            best = (total, est, steps, lines, per_object, staggered, bands, wipes, writer)
+    report(0.97, "Saving")
+    _, p, steps, lines, per_object, staggered, bands, (wipes_kept, wipes_gridded), writer = best
+    anchor(o, p, slicer, lim)
     lines = stamp_progress(lines, steps, p["swap_each_s"], p["total_s"])
     _stamp_estimate(lines, p["total_s"])
     Path(output_path).write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -144,6 +183,9 @@ def run(input_path, output_path, cfg):
         "visible_ceded_mm": sum(b.visible_ceded_mm for b in bands),
         "ramped_paths": ramped,
         "per_object": per_object,
+        "staggered": staggered,
+        "min_layer_time": writer.min_layer_time,
+        "min_layer_source": writer.min_layer_source,
         "cooled_groups": writer.slowed,
         "cooled_short": writer.short,
         "fanned_paths": writer.fanned,

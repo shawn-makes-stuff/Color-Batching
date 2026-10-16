@@ -50,14 +50,17 @@ def file_estimate(lines):
     return None
 
 
-def anchor(o, p, slicer, lim):
-    """Totals for original o and processed p: original = the slicer's figure, per swap = (slicer - our motion
-    and dwell) / swaps. Without a slicer figure: the profile's swap time."""
+def swap_each(o, slicer, lim):
+    """(seconds per swap, source): (slicer - our motion and dwell of original o) / swaps, else the profile's."""
     if slicer:
-        each = max(0.0, slicer - o["motion_s"] - o["dwell_s"]) / o["swaps"] if o["swaps"] else 0.0
-        source = "slicer estimate"
-    else:
-        each, source = lim.swap_s, "ColorStack model"
+        return (max(0.0, slicer - o["motion_s"] - o["dwell_s"]) / o["swaps"] if o["swaps"] else 0.0,
+                "slicer estimate")
+    return lim.swap_s, "ColorStack model"
+
+
+def anchor(o, p, slicer, lim):
+    """Totals for original o and processed p: original = the slicer's figure, the rest per swap_each."""
+    each, source = swap_each(o, slicer, lim)
     for r in (o, p):
         r["swap_s"] = r["swaps"] * each
         r["total_s"] = r["motion_s"] + r["dwell_s"] + r["swap_s"]
