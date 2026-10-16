@@ -17,6 +17,8 @@ NEUTRAL_TYPES = {"Prime tower"}  # printed by whichever tool is loaded
 DROP = {"G92", "M73", "SET_PRINT_STATS_INFO", "G17", "M117", "SET_VELOCITY_LIMIT", "M204", "M82", "M83",
         "G90", "G91"}
 TEMPS = {"M104", "M109", "M140", "M190", "M141", "M191"}
+# pause / filament change: everything below must be printed first, nothing above, so no band crosses the layer
+BARRIERS = {"M600", "M601", "M0", "M1", "M25", "M125", "PAUSE"}
 
 
 @dataclass
@@ -39,6 +41,8 @@ class Path:
     tower: str | None = None  # prime tower part: "wipe", "grid" or "wall"
     block: int = -1           # wipe block number (one per tool change)
     scv: float | None = None  # Klipper square corner velocity set before the path
+    temp: float | None = None  # nozzle temperature the slicer printed it at
+    vlim: tuple = ()          # other SET_VELOCITY_LIMIT parameters in force, ((name, value), ...)
 
     @property
     def visible(self):
@@ -56,6 +60,10 @@ class Layer:
     paths: list = field(default_factory=list)
     cmds: list = field(default_factory=list)   # emitted at the layer's start
 
+    @property
+    def barrier(self):
+        return any(c.split()[0].upper() in BARRIERS for c in self.cmds)
+
 
 @dataclass
 class Program:
@@ -70,8 +78,17 @@ class Program:
     abs_e: bool = False           # start G-code leaves M82
     stats_info: bool = False      # file uses SET_PRINT_STATS_INFO
     accel_format: str = "SET_VELOCITY_LIMIT ACCEL={a}"
+    first_temp: float | None = None   # nozzle temperature when the layers start
+    temps: dict = field(default_factory=dict)    # tool -> nozzle temperature per layer index (see temp_at)
+    fans: dict = field(default_factory=dict)     # (tool, layer index, type) -> fans the slicer set for it
     travel: dict = field(default_factory=dict)   # retract, retract_f, deretract_f, z_hop, travel_f, min_travel
     unknown: Counter = field(default_factory=Counter)
+
+    def temp_at(self, tool, index):
+        """Nozzle temperature for tool printing layer index: what the slicer printed that tool at there (a layer
+        the tool had nothing on takes the nearest one below, else above). None if unknown."""
+        col = self.temps.get(tool)
+        return col[index] if col else None
 
     def setting_list(self, key, cast=float, default=None):
         if key not in self.settings:
@@ -130,7 +147,12 @@ def parse(path_in):
     modes = [w for w in modes if w in ("M82", "M83")]
     prog.abs_e = bool(modes) and modes[-1] == "M82"
     layers, cur = [], None
-    accel, scv, typ, width, obj = None, None, "", None, None
+    accel, scv, typ, width, obj, vlim = None, None, "", None, None, ()
+    # nozzle temperature: the first layer's from the settings (start G-code may set it by macro), else the start
+    # G-code's own M104/M109
+    pre_tools = [v[0] for i, k, v in events if k == "tool" and i < first_layer]
+    initial = prog.setting_list("nozzle_temperature_initial_layer") or prog.setting_list("first_layer_temperature")
+    temp = initial[min(pre_tools[-1] if pre_tools else 0, len(initial) - 1)] if initial else None
     fans = {}
     path = None
     seq = 0
@@ -169,11 +191,13 @@ def parse(path_in):
                 new_layer()
             if m.xy < 1e-9 and m.de == 0 and abs(m.z1 - m.z0) < 1e-9:
                 continue       # feedrate-only line
+            if m.de > 0 and m.xy > 1e-9 and abs(m.z1 - m.z0) >= 1e-9:
+                raise ValueError(f"line {i + 1} extrudes while changing Z (spiral vase?): not supported")
             if m.de > 0 and m.xy > 1e-9 and abs(m.z1 - m.z0) < 1e-9:
                 if path is None:
                     tl = None if typ in NEUTRAL_TYPES else tool
                     path = Path(tl, typ, width, m.z1, [(m.x0, m.y0)], [], [], accel, dict(fans), obj,
-                                seq, retracted, hopped, scv=scv)
+                                seq, retracted, hopped, scv=scv, temp=temp, vlim=vlim)
                     if typ in NEUTRAL_TYPES:
                         path.tower, path.block = tower_sec, block if tower_sec == "wipe" else -1
                 path.pts.append((m.x1, m.y1))
@@ -221,8 +245,11 @@ def parse(path_in):
             scv = val
             continue
         if not live:
-            if kind == "cmd" and val.split()[0].upper() in ("M106", "M107"):
-                _fan(fans, val.split()[0].upper(), val)
+            w = val.split()[0].upper() if kind == "cmd" else None
+            if w in ("M106", "M107"):
+                _fan(fans, w, val)
+            elif w in ("M104", "M109") and not initial:
+                temp = _temp(val, tool, temp)
             continue
         if kind == "layer":
             close()
@@ -268,10 +295,16 @@ def parse(path_in):
             elif w == "EXCLUDE_OBJECT_END":
                 close()
                 obj = None
+            elif w in ("M104", "M109"):     # nozzle: kept per path, the writer sets it before each
+                close()
+                temp = _temp(val, tool, temp)
             elif w in TEMPS:
-                if not (in_toolchange and w in ("M104", "M109")):   # per-filament temps: the writer sets them
-                    close()
-                    cur.cmds.append(val)
+                close()
+                cur.cmds.append(val)
+            elif w == "SET_VELOCITY_LIMIT" and (extra := {k.upper(): v for k, v in re.findall(r"(\w+)=(\S+)", val)
+                                                          if k.upper() not in ("ACCEL", "SQUARE_CORNER_VELOCITY")}):
+                close()
+                vlim = tuple(sorted({**dict(vlim), **extra}.items()))
             elif w in DROP:
                 pass
             elif in_toolchange:
@@ -282,6 +315,7 @@ def parse(path_in):
                 prog.unknown[w] += 1
     close()
     prog.toolchange_extra = toolchange_extra or []
+    prog.first_temp = next((p.temp for L in layers for p in L.paths), None)
 
     # layer Z / height when the slicer did not say
     prev = 0.0
@@ -295,6 +329,17 @@ def parse(path_in):
     for k, L in enumerate(layers):
         L.index = k
     prog.layers = layers
+    for L in layers:
+        for p in L.paths:
+            if p.tool is not None:
+                prog.fans.setdefault((p.tool, L.index, p.type), p.fans)
+    for t in {p.tool for L in layers for p in L.paths if p.tool is not None}:
+        col = [next((p.temp for p in L.paths if p.tool == t and p.temp is not None), None) for L in layers]
+        for order in (range(len(col)), range(len(col) - 1, -1, -1)):     # fill from below, then from above
+            last = None
+            for k in order:
+                col[k] = last = col[k] if col[k] is not None else last
+        prog.temps[t] = col
 
     # line width when the slicer did not write it: filament volume / (length * layer height)
     diam = prog.setting_list("filament_diameter", default=[1.75])
@@ -319,6 +364,13 @@ def parse(path_in):
         "min_travel": first_setting(settings, "retraction_minimum_travel", 1.0),
     }
     return prog
+
+
+def _temp(cmd, tool, current):
+    """Nozzle target after an M104/M109 (one aimed at another tool with T leaves it)."""
+    s = re.search(r"\bS(\d*\.?\d+)", cmd)
+    t = re.search(r"\bT(\d+)", cmd)
+    return float(s.group(1)) if s and (not t or int(t.group(1)) == tool) else current
 
 
 def _fan(fans, word, s):

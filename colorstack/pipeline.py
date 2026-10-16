@@ -115,6 +115,8 @@ def _stamp_header(lines, o, p):
          lambda m: m.group(1) + _floats(per_tool(_numbers(m.group(2))))),
     ]
     for k, ln in enumerate(lines):
+        if not ln.startswith(";"):        # every rule matches a comment line
+            continue
         for pattern, new in rules:
             m = re.match(pattern, ln)
             if m:
@@ -123,11 +125,11 @@ def _stamp_header(lines, o, p):
     # totals from the per-tool lines just written
     sums = {}
     for ln in lines:
-        m = re.match(r"^; (filament used \[g\]|filament cost) = (.*)$", ln)
+        m = ln.startswith("; ") and re.match(r"^; (filament used \[g\]|filament cost) = (.*)$", ln)
         if m:
             sums[m.group(1)] = sum(_numbers(m.group(2)))
     for k, ln in enumerate(lines):
-        m = re.match(r"^(; total (filament used \[g\]|filament cost) = )", ln)
+        m = ln.startswith("; total") and re.match(r"^(; total (filament used \[g\]|filament cost) = )", ln)
         if m and m.group(2) in sums:
             lines[k] = m.group(1) + f"{sums[m.group(2)]:.2f}"
 

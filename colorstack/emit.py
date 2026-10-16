@@ -10,7 +10,11 @@ from dataclasses import replace
 
 import numpy as np
 
+from .gcode import BARRIERS
 from .plan import Grid, densify
+
+# a layer's bed / chamber changes and pauses wait until every layer below it is printed
+SETTLED = {"M140", "M190", "M141", "M191"} | BARRIERS
 
 
 def _fmt(v):
@@ -75,8 +79,10 @@ class Writer:
         flat = setting("flush_volumes_matrix")
         self.flush = [flat[i * n:(i + 1) * n] for i in range(n)] if flat and len(flat) == n * n else None
         self.flush_mult = setting("flush_multiplier", default=[1.0])[0]
-        temps = setting("nozzle_temperature")
-        self.temps = [int(v) for v in temps] if temps else None
+        self.nozzle_t = program.first_temp
+        self.left = []             # paths still to print, per layer index (write counts them)
+        self.settled = 0           # layers below are all printed
+        self.waiting = {}          # layer index -> its SETTLED commands
         # cooling (Orca/Bambu or PrusaSlicer names)
         self.min_layer_time = setting("slow_down_layer_time") or setting("slowdown_below_layer_time")
         on = setting("slow_down_for_layer_cooling") or setting("cooling")     # per filament, Orca / Prusa
@@ -115,6 +121,7 @@ class Writer:
         self.f = None
         self.accel = None
         self.scv = None
+        self.vlim = ()
         self.fans = {}
         self.obj = None
         self.type = None
@@ -231,7 +238,14 @@ class Writer:
             self.emit("EXCLUDE_OBJECT_END NAME=" + self.obj)
             self.obj = None
 
-    def change_tool(self, tool):
+    def set_temp(self, t):
+        """Nozzle target t (None: unknown, leave it) without waiting, as the slicer changes it between layers."""
+        if t is not None and t != self.nozzle_t:
+            self._outside([f"M104 S{_fmt(t)}"])
+            self.nozzle_t = t
+
+    def change_tool(self, tool, temp=None):
+        """Swap to tool, heading for temp (its temperature on the first layer it prints) during the swap."""
         if tool == self.tool:
             return
         self._end_object()
@@ -239,8 +253,7 @@ class Writer:
         # the printer's swap routine travels to the purge tray from here: start above everything printed
         self.lift(max(self.top, self.z or 0.0) + max(self.z_hop, self.swap_lift))
         self.emit(f"; COLORSTACK TOOLCHANGE T{self.tool} -> T{tool}")
-        if self.temps and max(tool, self.tool) < len(self.temps) and self.temps[tool] != self.temps[self.tool]:
-            self.emit(f"M104 S{self.temps[tool]}")
+        self.set_temp(temp)
         self.emit(self.p.tool_format.format(n=tool, purge=f"{self.purge_length(self.tool, tool):.3f}"))
         self.out.extend(self.tc_extra)
         self.tool = tool
@@ -255,11 +268,39 @@ class Writer:
         if layer.index in self.touched:
             return
         self.touched.add(layer.index)
-        self.out.extend(layer.cmds)
+        self._outside([c for c in layer.cmds if c.split()[0].upper() not in SETTLED])
+        later = [c for c in layer.cmds if c.split()[0].upper() in SETTLED]
+        if later:
+            self.waiting[layer.index] = later
+        self._settle()
         if self.p.stats_info:
-            self.emit(f"SET_PRINT_STATS_INFO TOTAL_LAYER={len(self.p.layers)} CURRENT_LAYER={layer.index + 1}")
+            self._outside([f"SET_PRINT_STATS_INFO TOTAL_LAYER={len(self.p.layers)} CURRENT_LAYER={layer.index + 1}"])
 
-    def path(self, p, height):
+    def _outside(self, lines):
+        """Layer commands go between objects, as the slicer writes them at a layer change."""
+        if lines:
+            self._end_object()
+            self.out.extend(lines)
+
+    def _settle(self):
+        """Release the SETTLED commands of layers whose layers below are all printed."""
+        while self.settled < len(self.left) and self.left[self.settled] == 0:
+            self.settled += 1
+        for k in sorted(k for k in self.waiting if k <= self.settled):
+            self._outside(self.waiting.pop(k))
+
+    def own_fans(self, p, tool, layer):
+        """A piece handed to another tool gets the fans the slicer set for that tool's lines of its kind there."""
+        if p.tool is None or p.tool == tool:
+            return p
+        fans = self.p.fans.get((tool, layer.index, p.type))
+        return p if fans is None or fans == p.fans else replace(p, fans=fans)
+
+    def path(self, p, layer):
+        # the loaded filament's temperature for this layer (a handed-over piece is printed by another tool than it
+        # was sliced with); tower lines at whatever the loaded filament is at
+        if p.tool is not None:
+            self.set_temp(self.p.temp_at(self.tool, layer.index))
         if p.obj != self.obj:
             self._end_object()
             if p.obj is not None:
@@ -285,6 +326,9 @@ class Writer:
         if p.scv is not None and p.scv != self.scv:
             self.emit(f"SET_VELOCITY_LIMIT SQUARE_CORNER_VELOCITY={_fmt(p.scv)}")
             self.scv = p.scv
+        if p.vlim and p.vlim != self.vlim:      # () = nothing set yet: the printer's own, nothing to restore
+            self.emit("SET_VELOCITY_LIMIT " + " ".join(f"{k}={v}" for k, v in p.vlim))
+            self.vlim = p.vlim
         for k, v in p.fans.items():
             if self.fans.get(k) != v:
                 self.emit(f"M106 {k + ' ' if k else ''}S{v}")
@@ -295,9 +339,9 @@ class Writer:
         if p.width != self.width:
             self.emit(f";WIDTH:{_fmt(p.width)}")
             self.width = p.width
-        if height != self.height:
-            self.emit(f";HEIGHT:{_fmt(height)}")
-            self.height = height
+        if layer.height != self.height:
+            self.emit(f";HEIGHT:{_fmt(layer.height)}")
+            self.height = layer.height
         for i, (e, f) in enumerate(zip(p.e, p.f)):
             x, y = p.pts[i + 1]
             fs = f" F{_fmt(f)}" if f != self.f else ""
@@ -311,6 +355,9 @@ class Writer:
         self.top = max(self.top, p.z)
         self.heights.add(p)
         self.last = p
+        self.left[layer.index] -= 1
+        if self.left[layer.index] == 0:
+            self._settle()
 
     def _cool(self, paths, tool, layer_index, extra=0.0):
         """A region printed again straight on top of itself still gets the file's minimum layer time: slow it
@@ -376,12 +423,18 @@ class Writer:
         out.extend("; " + s for s in summary_lines)
         if self.p.abs_e:
             self.emit("M83 ; ColorStack writes relative extrusion")
+        self.left = [0] * len(self.p.layers)
+        for band in bands:
+            for layer, w in zip(band.layers, band.work):
+                self.left[layer.index] += len(w)
         for band in bands:
             for unit in band.order:
-                tool = unit[0]
-                self.change_tool(tool)
-                items = [[p for owner, p in w if owner == unit] for w in band.work]
+                items = [[self.own_fans(p, unit[0], layer) for owner, p in w if owner == unit]
+                         for layer, w in zip(band.layers, band.work)]
                 parts = [[p for p in ps if p.tower is None] for ps in items]
+                first_layer = next((layer.index for layer, ps in zip(band.layers, parts) if ps), None)
+                self.change_tool(unit[0], None if first_layer is None else self.p.temp_at(unit[0], first_layer))
+                tool = unit[0]
                 # tower right after the swap; with tower_between only the wipe, walls and grid between layers
                 late = ("wall", "grid") if self.tower_between else ()
                 first = [[p for p in ps if p.tower is not None and p.tower not in late] for ps in items]
@@ -390,7 +443,7 @@ class Writer:
                     if ps:
                         self.layer_start(layer)
                     for p in ps:
-                        self.path(p, layer.height)
+                        self.path(p, layer)
                 for j, layer in enumerate(band.layers):
                     mine, rest = parts[j], between[j]
                     short = 0.0
@@ -399,13 +452,16 @@ class Writer:
                     if mine and j + 1 < len(parts) and parts[j + 1]:
                         mine, short = self._cool(mine, tool, layer.index, _print_time(rest))
                     for p in mine + rest:
-                        self.path(p, layer.height)
+                        self.path(p, layer)
                     if short > 0.05 and self.lift_wait:
                         self.wait(short)
             for layer in band.layers:      # a layer with no extrusion still gets its commands
                 self.layer_start(layer)
         self._end_object()
-        self.emit(f"G1 E-{_fmt(self.retract)} F{_fmt(self.retract_f)}")
+        for k in sorted(self.waiting):     # left over only if a layer never settled (nothing below it printed)
+            self._outside(self.waiting.pop(k))
+        if not self.retracted:
+            self.emit(f"G1 E-{_fmt(self.retract)} F{_fmt(self.retract_f)}")
         self.lift(self.top + self.z_hop)
         if self.p.abs_e:
             self.emit("G92 E0")

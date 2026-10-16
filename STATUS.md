@@ -35,6 +35,33 @@ per-printer compensation.
 The user dropped all non-planar features (smooth tops, colour joins, undersides on support): no visible gain, out of
 scope. Code, numbers and the research are parked in stash/nonplanar/ (NOTES.md). Do not re-add unless asked.
 
+## Orca 2.5.0-alpha plugins (researched 2026-10-16 from source at tag v2.5.0-alpha, 3880f2c)
+- Fit: SlicingPipeline capability at Step.psGCodePostProcess gets ctx.gcode_path (edit in place), ctx.host,
+  ctx.output_name, ctx.config_value(); runs on the slicing worker thread, no orca.host.ui calls there (deadlock
+  warning in SlicingPipelinePluginCapability.hpp). Template: sandboxes/orca_gcode_stamp_plugin_any.py. Deps via
+  PEP 723 header, installed by bundled uv; bundled Python 3.10-3.13 (tomllib needs 3.11).
+- In-slicer steps (posSlice..psSkirtBrim) only edit geometry within a layer (print_z read-only, no tool order):
+  ColorStack cannot run before G-code generation.
+- Preview: BackgroundSlicingProcess.cpp ~l.286 post-processes the slice-time file and calls reload_gcode_moves ONLY
+  for is_BBL_printer(); other printers post-process a copy at export, preview stays unprocessed.
+  Print::reload_gcode_moves (Print.cpp ~l.5579) re-reads only moves + line ends, not print_statistics (times stay
+  pre-processing). Orca opens a .gcode passed on its command line (or to the running instance) in its preview
+  (GUI_App load_gcode). Lifecycle events include GCodeExportFinished / SlicingJobComplete (LifecycleEvents.hpp).
+- Probe on the real 2.5.0-alpha (2026-10-16, orca/colorstack_probe.py, installed in %APPDATA%\OrcaSlicer\
+  orca_plugins\colorstack_probe, results in probe.jsonl; orca/watch_probe.py streams them): Python 3.12.13 inside
+  orca-slicer.exe, numpy 2.5.4 + scipy 1.18.1 installed by uv from the PEP 723 header. Plugin tab = WebView2
+  Chromium 107, about:blank: WebGL2 yes (RTX 4070), CDN fetch + ES module import yes, localStorage no,
+  showSaveFilePicker no, <a download> lands in Downloads. Every slice (non-BBL Cosmos printer too) fires
+  GCodeExportStarted/Finished on the slicing thread with ctx.msg = Temp/orcaslicer_model/.../Metadata/.<pid>.<n>.gcode,
+  then SlicingJobComplete on the main thread. Reading that file: one permission prompt, then allowed (a "[AUDIT]
+  block" log line still appears each time). 2.3 MB to the page in 3 x 1 MB post_message chunks: 15 ms. threading
+  works; urllib GET to Moonraker works after a prompt. Selected printer preset exposes print_host / host_type /
+  printhost_apikey (physical-printer list not exposed); Plater has no current_plate_index. Plugin tabs are always
+  appended after the built-in tabs.
+- Must-guard features: IDEX/IQEX parallel + multi-nozzle (tool changes are nozzles, not swaps), belt_printer,
+  colour mixing with enable_mixed_color_sublayer (sub-layers at different Z inside one layer; whole-layer mixing is
+  plain multicolour). Prime tower changed in 2.5: re-check the CP TOOLCHANGE / tower markers on a 2.5 file.
+
 ## Open
 - Diagonal cube print (2026-10-16): faint lines at every colour change = speed contrast. With respect_min_layer_time
   on, stacked layers' outer walls ran ~31 mm/s, the layers at each swap at the sliced 130 mm/s (seen in the viewer's
@@ -59,5 +86,18 @@ scope. Code, numbers and the research are parked in stash/nonplanar/ (NOTES.md).
 ## Testing
 - Regression: run the four files above before and after a change and diff the outputs; `colorstack.verify` on
   each. Headless Edge screenshots need their own `--user-data-dir` (run via PowerShell `Start-Process`).
+- Review 2026-10-16 fixed: nozzle temperature is now the loaded tool's temperature for the layer being printed
+  (Program.temps from the original; first layer from nozzle_temperature_initial_layer, since start G-code may set it
+  by macro) — before, a layer's M104 fired when the first colour reached it, so the Anycubic cube's first layer
+  printed at 210 instead of 220; bed/chamber changes wait until all lower layers are printed; extra
+  SET_VELOCITY_LIMIT parameters (ACCEL_TO_DECEL ...) kept; Z-changing extrusion (vase) refused instead of dropped;
+  no double retract at the end. Second round: pause / filament change layers (gcode.BARRIERS) are barriers — no band
+  or run crosses them and the command waits until all lower layers are printed (old code: a pause at cube layer 42/44
+  left 24-32 mm of the layer below for after the pause; test: insert PAUSE after a ;Z: line, check material on the
+  wrong side); a handed-over piece takes the printing tool's fan for that layer and type (Program.fans; Stitch's T1
+  fans at 80%); compensate() wipes the first colour of a band that starts with a swap; layer commands and M104 are
+  written outside EXCLUDE_OBJECT blocks. Regression: swaps and times unchanged, only object markers and ~24 Stitch fan
+  lines differ. First round: only temperature lines differed from the earlier outputs (checked default and
+  staggered + tower_between); temperature check script: every model move at the expected target.
 - 2026-10-16 cleanup fixed two old bugs found by the regression: G4 dwells were never counted in the estimate,
   and Klipper `SET_VELOCITY_LIMIT ACCEL=` was never read (accel not restated per feature in Klipper files).

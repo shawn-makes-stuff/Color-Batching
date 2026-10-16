@@ -1,7 +1,8 @@
 """Shrink Orca's prime tower to the swaps that are left.
 
 A tower layer is walls, one wipe block per tool change, and a sparse grid over the rest. Each remaining swap
-keeps a wipe: the n-th tool swapped in during a band wipes on the n-th block of the band's first layer. Unused
+keeps a wipe: the n-th tool swapped in during a band (counting a swap at its start) wipes on the n-th block of the
+band's first layer. Unused
 blocks become grid lines (the grid's own spacing, width and flow). The tool that finishes the band prints the
 rest of the band's tower.
 """
@@ -97,6 +98,7 @@ def compensate(program, bands):
     """Rewrite each band's tower paths. Returns (wipe blocks kept, wipe blocks turned into grid)."""
     tpl = _grid_template(program)
     kept = replaced = 0
+    loaded = program.first_tool
     for band in bands:
         first_of = {}
         for u in band.order:
@@ -104,7 +106,9 @@ def compensate(program, bands):
         tool_seq = band.tools
         last = first_of[tool_seq[-1]]
         blocks = sorted({p.block for _, p in band.work[0] if p.tower == "wipe"})
-        wiper = dict(zip(blocks, [first_of[t] for t in tool_seq[1:]]))
+        swapped_in = tool_seq if tool_seq[0] != loaded else tool_seq[1:]     # a band may start with a swap
+        wiper = dict(zip(blocks, [first_of[t] for t in swapped_in]))
+        loaded = tool_seq[-1]
         for j, items in enumerate(band.work):
             new = []
             for owner, p in items:

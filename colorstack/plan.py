@@ -330,7 +330,8 @@ def _best_band(group, loaded, samples, nozzle, opts):
 
 
 def plan(program, nozzle, opts, progress=None):
-    """Greedy: grow each band one layer at a time while a valid plan exists. progress(fraction) as it goes."""
+    """Greedy: grow each band one layer at a time while a valid plan exists, never into a barrier layer (pause or
+    filament change: a band starts there). progress(fraction) as it goes."""
     samples = Samples(opts.resolution * 2)
     layers = program.layers
     bands, loaded, i = [], program.first_tool, 0
@@ -343,7 +344,7 @@ def plan(program, nozzle, opts, progress=None):
         if best is None:
             raise RuntimeError(f"no valid plan for layer {layers[i].index}")
         k = 1
-        while k < max_k and i + k < len(layers):
+        while k < max_k and i + k < len(layers) and not layers[i + k].barrier:
             b = _best_band(layers[i:i + k + 1], loaded, samples, nozzle, opts)
             if b is None:
                 break
@@ -367,7 +368,8 @@ def _max_layers(program, nozzle, opts):
 
 def plan_staggered(program, nozzle, opts, progress=None):
     """Each unit on its own schedule. A run prints one unit's next layers as far as the units below could still
-    finish the window after it as a band. Next run: the most layers for no swap, else for one swap; ties go to a
+    finish the window after it as a band, and no further than the next barrier layer while any unit is below it.
+    Next run: the most layers for no swap, else for one swap; ties go to a
     unit not touching the one just printed. Returns (one single-unit band per run, (wipes kept, wipes to grid))."""
     samples = Samples(opts.resolution * 2)
     layers = program.layers
@@ -414,6 +416,7 @@ def plan_staggered(program, nozzle, opts, progress=None):
         return None
 
     tower = RunTower(program)
+    barriers = [L.index for L in layers if L.barrier]
     done = _progress_at(layers) if progress else None
     loaded, last, top = program.first_tool, None, 0     # top: layers below are printed by somebody
     bands = []
@@ -422,13 +425,15 @@ def plan_staggered(program, nozzle, opts, progress=None):
         active = {u: e for u, e in effs.items() if e < n}
         if not active:
             break
+        lo_all = min(active.values())
         if progress:
-            progress(done[min(active.values())])
+            progress(done[lo_all])
+        cap = next((k for k in barriers if k > lo_all), n)     # nobody prints past a barrier until all reach it
         cands = []
         for u, e in active.items():
             best = None
             b = max(top, e + 1)
-            while b <= n:
+            while b <= cap:
                 play = [v for v, ev in active.items() if ev < b]
                 lo = min(active[v] for v in play)
                 if b - lo > max_k:
@@ -441,8 +446,7 @@ def plan_staggered(program, nozzle, opts, progress=None):
             if best is not None:
                 cands.append((u, e) + best)
         if not cands:
-            raise RuntimeError(f"no valid run at layer {layers[min(active.values())].index}")
-        lo_all = min(active.values())
+            raise RuntimeError(f"no valid run at layer {layers[lo_all].index}")
         u, e, b, lo, band = max(cands, key=lambda c: (c[0][0] == loaded, c[2] - c[1],
                                                       last is None or not touching(c[0], last, lo_all)))
         # commit u's pieces: printed now (DONE) or handed to the unit that prints them later
