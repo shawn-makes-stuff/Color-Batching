@@ -33,13 +33,6 @@ HELP = {
     "stack.staggered": ("Staggered colours", "", "Each colour on its own schedule: fewer swaps where 3+ colours "
                         "share layers. Both ways are planned, the faster kept. Slower processing on those files."),
     "stack.resolution": ("Resolution", "mm", "Sampling step for the collision planning."),
-    "nonplanar.smooth_tops": ("Non-planar top skin", "", "Replace the stair-stepped top lines of shallow curved / "
-                              "sloped tops with one continuous skin that follows the surface."),
-    "nonplanar.max_angle": ("Max angle", "°", "Steepest surface printed non-planar. Also capped by the nozzle: the "
-                            "flat tip may touch the slope by at most Edge contact."),
-    "nonplanar.min_area": ("Min area", "mm²", "Smallest region worth a non-planar skin."),
-    "nonplanar.max_tread": ("Max tread", "mm", "A flat wider than this is a real flat, not a stair step."),
-    "nonplanar.max_segment": ("Max segment", "mm", "Longest straight piece of a ramped line."),
     "cooling.respect_min_layer_time": ("Respect minimum layer time", "", "Slow regions printed again straight on top "
                                        "of themselves down to the minimum layer time, as the slicer does. Off: keep "
                                        "the sliced speeds (the fan rule still applies)."),

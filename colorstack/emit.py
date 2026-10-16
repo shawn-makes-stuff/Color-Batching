@@ -31,7 +31,7 @@ class Heights:
 
     def add(self, p):
         r, c = self.grid.cells(densify(p, self.grid.res / 2)[0])
-        np.maximum.at(self.h, (r, c), p.top)
+        np.maximum.at(self.h, (r, c), p.z)
 
     def max_near(self, a, b, radius):
         """Tallest plastic within radius of the segment a-b (line width and grid step added)."""
@@ -267,7 +267,7 @@ class Writer:
             self.obj = p.obj
         x0, y0 = p.pts[0]
         q = self.last
-        z0 = p.z_at(0)
+        z0 = p.z
         high = self.clear_z(x0, y0, z0)
         if q is not None and high <= max(p.z, q.z) + 1e-6:
             # nothing taller on the way: travel as the slicer did into this path (its retract and hop). Where the
@@ -301,18 +301,14 @@ class Writer:
         for i, (e, f) in enumerate(zip(p.e, p.f)):
             x, y = p.pts[i + 1]
             fs = f" F{_fmt(f)}" if f != self.f else ""
-            zs = ""
-            if p.zs is not None and abs(p.zs[i + 1] - self.z) > 1e-6:
-                self.z = p.zs[i + 1]
-                zs = f" Z{_fmt(self.z)}"
             es = f" E{e:.5f}" if e > 0 else ""
-            self.emit(f"G1 X{_fmt(x)} Y{_fmt(y)}{zs}{es}{fs}")
+            self.emit(f"G1 X{_fmt(x)} Y{_fmt(y)}{es}{fs}")
             self.f = f
         self.pos = p.pts[-1]
-        self.last_pts = p.pts if p.zs is None else None
+        self.last_pts = p.pts
         if p.tower is None:
             self.object_f = p.f[-1]
-        self.top = max(self.top, p.top)
+        self.top = max(self.top, p.z)
         self.heights.add(p)
         self.last = p
 

@@ -121,7 +121,8 @@ def check(original, processed, nozzle, res=0.05):
     problems = []
     floating = []
     e_total = 0.0
-    zs = sorted({round(m[5], 3) for m in proc if m[6] > 0 and m[8] and m[3:5] != m[0:2]})
+    # layer heights from the original: lines that change height put many other heights in a file
+    zs = sorted({round(m[5], 3) for m in moves(original) if m[6] > 0 and m[8] and m[3:5] != m[0:2]})
     first_z = zs[0]
     layer_h = min((b - a for a, b in zip(zs, zs[1:]) if b - a > 0.05), default=0.2)
     printed = {}   # (z, cell) -> index of the extrusion that printed it, for the late-support check
@@ -141,7 +142,7 @@ def check(original, processed, nozzle, res=0.05):
                 printed.setdefault((round(bz, 2), int(round((cy - y0) / res / 4)), int(round((cx - x0) / res / 4))), order)
             for t in np.linspace(0, 1, n + 1)[1:]:
                 cx, cy = ax + (bx - ax) * t, ay + (by - ay) * t
-                cz = az + (bz - az) * t           # non-planar lines change height along the segment
+                cz = az + (bz - az) * t           # a line may change height along the segment
                 win = window(cx, cy)
                 if win is None:
                     continue

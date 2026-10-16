@@ -24,7 +24,7 @@ def main(argv=None):
     out = a.output or str(Path(a.input).with_suffix("")) + ".colorstack.gcode"
     t0 = time.time()
     r = run(a.input, out, cfg)
-    print(f"non-planar ramped paths {r['ramped_paths']}, tower wipes kept {r['tower_wipes_kept']}, "
+    print(f"tower wipes kept {r['tower_wipes_kept']}, "
           f"turned into grid {r['tower_wipes_to_grid']}")
     print(f"cooling: {r['cooled_groups']} stacked regions slowed to the minimum layer time"
           + (f", {r['cooled_short']} still short at minimum speed" if r['cooled_short'] else "")

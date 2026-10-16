@@ -77,13 +77,6 @@ class Grid:
         return r, c
 
 
-def sample_z(p, seg, ts):
-    if p.zs is None:
-        return np.full(len(seg), p.z)
-    z = np.asarray(p.zs)
-    return z[seg] + (z[seg + 1] - z[seg]) * ts
-
-
 def densify(p, step):
     """Samples along a path: (points Nx2, segment index, t within segment)."""
     pts, seg, ts = [], [], []
@@ -100,12 +93,12 @@ def densify(p, step):
 def split(p, seg, ts, mask):
     """Split path p where the per-sample mask changes. Returns [(flag, Path)]."""
     out = []
-    cur_flag, cur_pts, cur_e, cur_f, cur_z = None, None, None, None, None
+    cur_flag, cur_pts, cur_e, cur_f = None, None, None, None
 
     def flush():
         if cur_pts is not None and len(cur_pts) > 1:
             out.append((cur_flag, replace(p, pts=cur_pts, e=cur_e, f=cur_f, head=p.head and not out,
-                                          tail=False, zs=cur_z if p.zs is not None else None)))
+                                          tail=False)))
 
     for i in range(len(p.e)):
         sel = seg == i
@@ -119,16 +112,14 @@ def split(p, seg, ts, mask):
                 cf.append(flags[k])
         cuts.append(1.0)
         (x0, y0), (x1, y1) = p.pts[i], p.pts[i + 1]
-        z0, z1 = p.z_at(i), p.z_at(i + 1)
         for k in range(len(cf)):
             ta, tb = cuts[k], cuts[k + 1]
             a = (x0 + (x1 - x0) * ta, y0 + (y1 - y0) * ta)
             b = (x0 + (x1 - x0) * tb, y0 + (y1 - y0) * tb)
             if cf[k] != cur_flag:
                 flush()
-                cur_flag, cur_pts, cur_e, cur_f, cur_z = cf[k], [a], [], [], [z0 + (z1 - z0) * ta]
+                cur_flag, cur_pts, cur_e, cur_f = cf[k], [a], [], []
             cur_pts.append(b)
-            cur_z.append(z0 + (z1 - z0) * tb)
             cur_e.append(p.e[i] * (tb - ta))
             cur_f.append(p.f[i])
     flush()
@@ -253,20 +244,16 @@ def plan_band(layers, order, samples, nozzle, opts, work=None, starts=None):
                     new_origin.append(first_owner)
                     continue
                 pts, seg, ts = samples.of(p)
-                zs = sample_z(p, seg, ts)
                 margin = np.full(len(pts), np.inf)
-                # raised (non-planar) material can stand above T's nozzle on the same layer too
-                for i in range(j + 1):
-                    tree = trees_T[i] if i < j else own_tree
-                    if tree is None:
+                for i in range(j):
+                    if trees_T[i] is None:
                         continue
-                    # path Z carries Orca's Z offset, layer Z does not
-                    dz = nozzle.over((zs - p.z) + (L.z - layers[i].z))
-                    if (dz <= 1e-6).all():
+                    # layer Z, not path Z: path Z carries Orca's Z offset
+                    dz = nozzle.over(L.z - layers[i].z)
+                    if dz <= 1e-6:
                         continue
-                    d = _nearest(tree, pts, max_need + p.width)
-                    need = np.where(dz > 1e-6, nozzle.reach(dz) + margin_mm, -np.inf)
-                    margin = np.minimum(margin, d - need)
+                    d = _nearest(trees_T[i], pts, max_need + p.width)
+                    margin = np.minimum(margin, d - nozzle.reach(dz) - margin_mm)
                 mask = margin < p.width / 2
                 if owner == DONE:
                     if mask.any():

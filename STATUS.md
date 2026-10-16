@@ -4,7 +4,7 @@
 | file | swaps | time (slicer-anchored) |
 |---|---|---|
 | Anycubic cube (work/cube_34m_print_1h2m_flush.gcode, lift-and-wait on) | 57 -> 31 | 1h35m56s -> 1h06m34s |
-| cube_sphere (non-planar tops, max_angle 22) | 91 -> 47 | 2h23m16s -> 1h32m44s |
+| cube_sphere (with the since-removed non-planar tops, max_angle 22) | 91 -> 47 | 2h23m16s -> 1h32m44s |
 | samples/cube1h43 (Orca, default contact) | 77 -> 41 | 1h43m19s -> 1h06m56s |
 | samples/stitch | 318 -> 181 | 7h20m49s -> 5h02m50s |
 | samples/stitch, stack.staggered=true (off by default since 3bac17d) | 318 -> 148 | 7h20m49s -> 4h31m32s |
@@ -31,6 +31,10 @@ First real print (Anycubic cube, Kobra 3 + ACE, 2026-10-16): 31 swaps as planned
 1h02m estimate. The ACE swap takes ~2 min, the slicer counts 66 s. Decision: keep the file-based estimate, no
 per-printer compensation.
 
+## Non-planar: removed (2026-10-16)
+The user dropped all non-planar features (smooth tops, colour joins, undersides on support): no visible gain, out of
+scope. Code, numbers and the research are parked in stash/nonplanar/ (NOTES.md). Do not re-add unless asked.
+
 ## Open
 - Diagonal cube print (2026-10-16): faint lines at every colour change = speed contrast. With respect_min_layer_time
   on, stacked layers' outer walls ran ~31 mm/s, the layers at each swap at the sliced 130 mm/s (seen in the viewer's
@@ -44,7 +48,7 @@ per-printer compensation.
   printed, ~98% by <= 0.17 mm (40% of the bead), ~5 mm beyond half the bead (worst 0.38 mm). The resting check only
   tests the line centre (supported by any earlier plastic); a fix would probe across the bead width like
   interface_mask. Cost unmeasured.
-- Ideas: tower growing with swaps rather than layers; smooth (non-planar) colour boundaries.
+- Ideas: tower growing with swaps rather than layers.
 - Rejected with data: purge-volume colour order (+2 swaps on Stitch), wider lines, adaptive layer heights.
   2026-10-16: exact DP over band boundaries = greedy (cube 41 = 41); purge into the incoming colour's infill
   absorbs only 6% of flush; DP colour order at the same swap count saves 4% flush on Stitch, 0 on cube.
