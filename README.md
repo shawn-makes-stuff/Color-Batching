@@ -5,6 +5,10 @@ sliced G-code so each colour prints several layers in a row before the next swap
 without hitting what is already printed. Fewer swaps, less purge waste, shorter prints. It works on G-code from
 Orca, Bambu Studio, PrusaSlicer, Anycubic and Cura, for Klipper or Marlin printers.
 
+![Original and ColorStack playing side by side](docs/cube-example.gif)
+
+*Two-colour test cube: 49 colour changes and 1h10m as sliced, 19 and 40m after ColorStack.*
+
 ## Setup
 Python 3.11 or newer, then:
 ```
