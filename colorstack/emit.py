@@ -1,8 +1,7 @@
 """Write a band plan back out as G-code.
 
-Travels, retracts, Z hops and tool changes follow the file's own settings. A travel lifts above the tallest
-material printed so far (with local lift: the tallest the nozzle could reach on the way), since inside a band
-other regions may stand higher than the current layer.
+Travels, retracts, Z hops and tool changes follow the file's own settings. Inside a band other regions may stand
+higher than the current layer, so a travel that passes within the nozzle's reach of them lifts above them.
 Extrusion is written relative; a file that started absolute gets M83 after its start G-code and M82 back
 before its end G-code.
 """
@@ -54,11 +53,10 @@ class Heights:
 
 class Writer:
     def __init__(self, program, nozzle, swap_lift=1.0, stacked_fan=True, lift_wait=False, min_layer_time=0.0,
-                 tower_between=False, local_lift=False, respect_min_layer_time=True):
+                 tower_between=False, respect_min_layer_time=True):
         """min_layer_time > 0 overrides the file's. tower_between: print the tower between a colour's stacked
-        layers (cooling time) instead of all right after the swap. local_lift: travels lift above the plastic the
-        nozzle could reach on the way, not above the tallest point printed anywhere.
-        respect_min_layer_time off: stacked regions keep the sliced speeds (the fan rule still applies)."""
+        layers (cooling time) instead of all right after the swap. respect_min_layer_time off: stacked regions
+        keep the sliced speeds (the fan rule still applies)."""
         self.p = program
         self.respect_min_layer_time = respect_min_layer_time
         self.swap_lift = swap_lift
@@ -66,7 +64,7 @@ class Writer:
         self.lift_wait = lift_wait
         self.tower_between = tower_between
         self.nozzle = nozzle
-        self.heights = Heights(program) if local_lift else None
+        self.heights = Heights(program)
         t = program.travel
         self.retract, self.retract_f, self.deretract_f = t["retract"], t["retract_f"], t["deretract_f"]
         self.z_hop, self.travel_f, self.min_travel = t["z_hop"], t["travel_f"], t["min_travel"]
@@ -197,12 +195,11 @@ class Writer:
         self.deretract()
 
     def clear_z(self, x, y, z):
-        """Height a travel from here to (x, y) at z must clear: the tallest plastic printed anywhere, or with
-        local lift the tallest within the nozzle's reach on the way (its cone at the tallest printed point
-        reaches no further; past clear_height the heater block could, so then the global top)."""
+        """Height a travel from here to (x, y) at z must clear: the tallest plastic within the nozzle's reach on the
+        way (its cone at the tallest printed point reaches no further; past clear_height the heater block could,
+        so then the tallest printed anywhere)."""
         base = min(z, self.z) if self.z is not None else z
-        if (self.heights is None or self.pos is None or self.top <= base + 1e-6
-                or self.top - base > self.nozzle.clear_height):
+        if self.pos is None or self.top <= base + 1e-6 or self.top - base > self.nozzle.clear_height:
             return self.top
         return self.heights.max_near(self.pos, (x, y), self.nozzle.reach(self.top - base))
 
@@ -316,8 +313,7 @@ class Writer:
         if p.tower is None:
             self.object_f = p.f[-1]
         self.top = max(self.top, p.top)
-        if self.heights is not None:
-            self.heights.add(p)
+        self.heights.add(p)
         self.last = p
 
     def _cool(self, paths, tool, layer_index, extra=0.0):

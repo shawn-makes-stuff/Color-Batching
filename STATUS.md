@@ -22,7 +22,7 @@ handed over. Not fixed, on purpose: each spot is one 0.2 mm sample of a line res
 overhang that long), and handing such visible seam lines to the later colour would move surface colour or add swaps.
 
 2026-10-16 options: stack.staggered (off by default; on gives the Stitch rows above), cooling.min_layer_time (0 = file's slow_down_layer_time per filament,
-where slow_down_for_layer_cooling is on), cooling.tower_between (off; cube -31 s), travel.local_lift (off; cube
+where slow_down_for_layer_cooling is on), cooling.tower_between (off; cube -31 s), travel.local_lift (since 2026-10-16 always on, setting removed; cube
 -41 s; lifts by the full cone reach at the tallest printed point, global top past clear_height). The pipeline now
 picks between plans by total time (motion + swaps x per-swap cost), not motion alone. With staggered off and new
 options off, all four regression outputs are byte-identical to before.

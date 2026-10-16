@@ -26,7 +26,6 @@ run with `python -m colorstack in.gcode --set section.key=value`.
 | `cooling.min_layer_time` | 0 s | Minimum layer time for stacked regions; 0 = the file's own per filament. |
 | `cooling.tower_between` | off | Print the tower's walls and grid between a colour's stacked layers, as cooling time. |
 | `swap.lift` | 1.0 mm | Lift above the tallest printed point before each colour change (at least the slicer's Z hop). |
-| `travel.local_lift` | on | Travels lift only where they would pass over plastic higher than the current layer; elsewhere they travel as the slicer did. Off: every travel lifts above the tallest printed point. |
 | `export.printer_host` | (empty) | Moonraker address for Send to printer, e.g. `192.168.1.20` or `192.168.1.20:7125`. |
 | `printer.*` | Klipper defaults | Motion limits for the time estimate, only for files that do not carry the slicer's machine limits. |
 
@@ -39,7 +38,8 @@ run with `python -m colorstack in.gcode --set section.key=value`.
   colour interfaces are handed over: the outside keeps its colours exactly.
 - **Staggered colours.** Each colour runs on its own schedule; colours that do not touch stand ahead together
   while the colour between them catches up in one long run.
-- **Writing.** Travels, retracts, wipes and hops follow the file's own settings. Stacked regions keep the file's
+- **Writing.** Travels, retracts, wipes and hops follow the file's own settings; a travel lifts only to pass
+  over plastic standing higher than the current layer. Stacked regions keep the file's
   minimum layer time and fan rule. Each remaining swap keeps its prime tower wipe; unused blocks become grid.
 - **Time and filament.** Klipper-style motion with the file's machine limits; the per-swap cost is what the
   slicer's own total leaves after motion. The file's summary (times in every mode, colour changes, filament used)

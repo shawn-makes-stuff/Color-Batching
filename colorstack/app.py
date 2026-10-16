@@ -53,9 +53,6 @@ HELP = {
                               "stacked layers, as cooling time. The wipe still comes right after the swap."),
     "swap.lift": ("Swap lift", "mm", "Before each colour change, lift this far above the tallest point printed so "
                   "far (at least the slicer's Z hop), so the trip to the purge tray clears every stack."),
-    "travel.local_lift": ("Local travel lift", "", "Travels lift only where they would pass over plastic standing "
-                          "higher than the layer being printed (another colour's stack); elsewhere they travel as "
-                          "the slicer did. Off: every travel lifts above the tallest point printed anywhere."),
     "export.printer_host": ("Printer", "", "Moonraker address for Send to printer, e.g. 192.168.1.20 or "
                             "192.168.1.20:7125."),
     "printer.max_velocity": ("Max velocity", "mm/s", "Fallback for the time estimate, for files without the "

@@ -47,9 +47,6 @@ DEFAULTS = {
     "swap": {
         "lift": 1.0,
     },
-    "travel": {
-        "local_lift": True,
-    },
     "export": {
         "printer_host": "",
     },
@@ -206,7 +203,7 @@ def run(input_path, output_path, cfg, progress=None):
                  f"COLORSTACK nozzle tip_diameter={nz['tip_diameter']} cone_angle={nz['cone_angle']} "
                  f"clear_height={nz['clear_height']} contact={nz['contact']}"]
         writer = Writer(prog, nozzle, cfg["swap"]["lift"], co["stacked_fan"], co["lift_wait"], co["min_layer_time"],
-                        co["tower_between"], cfg["travel"]["local_lift"], co["respect_min_layer_time"])
+                        co["tower_between"], co["respect_min_layer_time"])
         lines = writer.write(bands, notes)
         steps = []
         est = estimate(lines, lim, steps)

@@ -1106,7 +1106,7 @@ async function initApp() {
   const nonplanar = cfg.sections.find((sec) => sec.name === "nonplanar").fields.map((f) => `nonplanar.${f.key}`);
   const used = new Set([...Object.values(MAIN).flat(), ...nonplanar, ...HIDDEN]);
   const titles = { stack: "Stacking", nozzle: "Nozzle", nonplanar: "Non-planar tops", cooling: "Cooling",
-                   swap: "Colour changes", travel: "Travel", export: "Export", printer: "Fallback motion limits" };
+                   swap: "Colour changes", export: "Export", printer: "Fallback motion limits" };
   const advanced = cfg.sections.map((sec) => {
     const keys = sec.fields.map((f) => `${sec.name}.${f.key}`).filter((k) => !used.has(k));
     return keys.length ? `<h4>${titles[sec.name] || sec.name}</h4>${keys.map(field).join("")}` : "";
