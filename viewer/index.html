@@ -219,8 +219,7 @@
     <div class="menu-wrap">
       <button class="icon-btn" id="exportBtn" title="Export (process a file first)" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 15v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"/></svg></button>
       <div class="menu" id="exportMenu" hidden>
-        <a class="btn primary xbtn" id="dlLink" href="#" download>Export optimized file</a>
-        <button class="btn xbtn" id="saveAsBtn">Export as&hellip;</button>
+        <button class="btn primary xbtn" id="saveBtn">Export optimized file</button>
         <div class="msec">Send to printer</div>
         <div class="xrow"><input type="text" id="host"><button class="btn sm" id="sendBtn">Send</button></div>
         <label class="toggle small"><input type="checkbox" id="startPrint">Start printing after upload</label>
@@ -1067,6 +1066,7 @@ $("swapS").onchange = () => { prints.forEach((p) => p && timeline(p)); update();
 
 // ---------- app mode (settings + process), only when colorstack.app serves this page ----------
 let appMode = false, current = null, dropFile = null;
+let source = null;      // the imported file's handle: Export opens the save dialog in its folder
 async function initApp() {
   let cfg, st;
   try {
@@ -1197,17 +1197,19 @@ async function initApp() {
   const bindExport = (output) => {
     $("exportBtn").disabled = false;
     $("exportBtn").title = "Export " + output;
-    $("dlLink").href = `/work/${encodeURIComponent(output)}?download=1`;
-    $("dlLink").setAttribute("download", output);
     $("exportMsg").textContent = "";
     const msg = (t, bad) => { $("exportMsg").textContent = t; $("exportMsg").style.color = bad ? "var(--bad)" : "var(--accent)"; };
-    $("saveAsBtn").onclick = async () => {
-      if (!window.showSaveFilePicker) return $("dlLink").click();     // no save dialog in this browser: plain download
+    $("saveBtn").onclick = async () => {
+      const url = `/work/${encodeURIComponent(output)}`;
+      if (!window.showSaveFilePicker) {        // no save dialog in this browser: plain download
+        Object.assign(document.createElement("a"), { href: url + "?download=1", download: output }).click();
+        return;
+      }
       try {
-        const file = await showSaveFilePicker({ suggestedName: output,
+        const file = await showSaveFilePicker({ suggestedName: output, startIn: source || "downloads",
           types: [{ description: "G-code", accept: { "text/plain": [".gcode"] } }] });
         const w = await file.createWritable();
-        await w.write(await (await fetch(`/work/${encodeURIComponent(output)}`)).blob());
+        await w.write(await (await fetch(url)).blob());
         await w.close();
         msg(`Saved ${file.name}`);
       } catch (e) { if (e.name !== "AbortError") msg(e.message, true); }
@@ -1232,7 +1234,8 @@ async function initApp() {
     unload(1);
     await loadUrl(0, `/work/${encodeURIComponent(name)}`, name);
   };
-  const upload = async (file) => {
+  const upload = async (file, handle = null) => {
+    source = handle;
     $("err").textContent = "";
     const r = await fetch(`/api/upload?name=${encodeURIComponent(file.name)}`, { method: "POST", body: file });
     const j = await r.json();
@@ -1241,6 +1244,14 @@ async function initApp() {
   };
   dropFile = upload;
   $("upload").onchange = (e) => e.target.files[0] && upload(e.target.files[0]);
+  $("importBtn").onclick = async (e) => {    // the open dialog, where there is one, gives the file's folder too
+    if (!window.showOpenFilePicker) return;
+    e.preventDefault();
+    try {
+      const [handle] = await showOpenFilePicker({ types: [{ description: "G-code", accept: { "text/plain": [".gcode"] } }] });
+      await upload(await handle.getFile(), handle);
+    } catch (err) { if (err.name !== "AbortError") $("err").textContent = err.message; }
+  };
   $("processBtn").onclick = async () => {
     if (!current) { $("err").textContent = "Import a G-code file first."; return; }
     $("err").textContent = ""; $("result").innerHTML = "";
@@ -1284,7 +1295,8 @@ stage.addEventListener("dragover", (e) => e.preventDefault());
 stage.addEventListener("drop", (e) => {
   e.preventDefault();
   const fs = [...e.dataTransfer.files];
-  if (dropFile && fs[0]) return dropFile(fs[0]);
+  const handle = e.dataTransfer.items[0]?.getAsFileSystemHandle?.();     // must be asked for during the drop
+  if (dropFile && fs[0]) return Promise.resolve(handle).then((h) => dropFile(fs[0], h?.kind === "file" ? h : null));
   const x = e.clientX < wrap.getBoundingClientRect().left + wrap.clientWidth / 2 ? 0 : 1;
   if (fs.length >= 2) { load(0, fs[0]); load(1, fs[1]); } else if (fs[0]) load(x, fs[0]);
 });
