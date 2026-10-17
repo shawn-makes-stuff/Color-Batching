@@ -339,9 +339,10 @@ class Writer:
         if p.width != self.width:
             self.emit(f";WIDTH:{_fmt(p.width)}")
             self.width = p.width
-        if layer.height != self.height:
-            self.emit(f";HEIGHT:{_fmt(layer.height)}")
-            self.height = layer.height
+        height = p.height or layer.height
+        if height != self.height:
+            self.emit(f";HEIGHT:{_fmt(height)}")
+            self.height = height
         for i, (e, f) in enumerate(zip(p.e, p.f)):
             x, y = p.pts[i + 1]
             fs = f" F{_fmt(f)}" if f != self.f else ""
