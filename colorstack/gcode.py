@@ -43,6 +43,7 @@ class Path:
     scv: float | None = None  # Klipper square corner velocity set before the path
     temp: float | None = None  # nozzle temperature the slicer printed it at
     vlim: tuple = ()          # other SET_VELOCITY_LIMIT parameters in force, ((name, value), ...)
+    height: float | None = None   # line height the slicer wrote for it (;HEIGHT: after ;TYPE:), None = the layer's
 
     @property
     def visible(self):
@@ -148,6 +149,7 @@ def parse(path_in):
     prog.abs_e = bool(modes) and modes[-1] == "M82"
     layers, cur = [], None
     accel, scv, typ, width, obj, vlim = None, None, "", None, None, ()
+    height = None
     # nozzle temperature: the first layer's from the settings (start G-code may set it by macro), else the start
     # G-code's own M104/M109
     pre_tools = [v[0] for i, k, v in events if k == "tool" and i < first_layer]
@@ -197,7 +199,7 @@ def parse(path_in):
                 if path is None:
                     tl = None if typ in NEUTRAL_TYPES else tool
                     path = Path(tl, typ, width, m.z1, [(m.x0, m.y0)], [], [], accel, dict(fans), obj,
-                                seq, retracted, hopped, scv=scv, temp=temp, vlim=vlim)
+                                seq, retracted, hopped, scv=scv, temp=temp, vlim=vlim, height=height)
                     if typ in NEUTRAL_TYPES:
                         path.tower, path.block = tower_sec, block if tower_sec == "wipe" else -1
                 path.pts.append((m.x1, m.y1))
@@ -257,7 +259,9 @@ def parse(path_in):
         elif kind == "z":
             if cur is not None:
                 cur.z = val
-        elif kind == "height":
+        elif kind == "height":      # Orca: after ;Z: the gap to the layer below, after ;TYPE: the line height
+            close()
+            height = val
             if cur is not None and cur.height == 0.0:
                 cur.height = val
         elif kind == "type":
@@ -349,7 +353,7 @@ def parse(path_in):
                 length = p.length()
                 d = diam[p.tool] if p.tool is not None and p.tool < len(diam) else diam[0]
                 area = math.pi * d * d / 4
-                p.width = round(sum(p.e) * area / max(length * L.height, 1e-9), 3) if length > 0 else 0.4
+                p.width = round(sum(p.e) * area / max(length * (p.height or L.height), 1e-9), 3) if length > 0 else 0.4
 
     # travel style: the slicer's settings, else what the file itself does
     def common(vals, default):

@@ -84,6 +84,11 @@ scope. Code, numbers and the research are parked in stash/nonplanar/ (NOTES.md).
   to the global top). Cooling slow-down adds ~6.5 min on Stitch, ~2 min on cube.
 
 ## Testing
+- Issue #1 (2026-10-17, Orca normal/grid supports, independent support layer height): ;HEIGHT is now kept per path
+  (Orca writes the Z gap after ;Z: and the line height after ;TYPE:; only the gap was kept, so 0.28 mm support
+  layers showed as thin lines); support is never handed to another tool (band shortened instead). Support test:
+  12 -> 6 swaps (4 before, with base support printed in the interface colour). Other regression files: only
+  ;HEIGHT lines differ (Stitch bridges now 0.4 as sliced).
 - Regression: run the four files above before and after a change and diff the outputs; `colorstack.verify` on
   each. Headless Edge screenshots need their own `--user-data-dir` (run via PowerShell `Start-Process`).
 - Review 2026-10-16 fixed: nozzle temperature is now the loaded tool's temperature for the layer being printed

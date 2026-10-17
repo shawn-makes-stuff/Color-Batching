@@ -272,7 +272,9 @@ def plan_band(layers, order, samples, nozzle, opts, work=None, starts=None):
                     new_work.append((owner, p))
                     new_origin.append(first_owner)
                     continue
-                vis = np.full(len(pts), p.visible)
+                if p.type.startswith("Support") and owner[0] != T[0]:
+                    return None     # support keeps the slicer's filament (interface material is chosen on purpose)
+                vis =np.full(len(pts), p.visible)
                 if p.visible:
                     vis &= ~interface_mask(p, pts, seg, layer_trees[j])
                 if (vis & mask).any():
