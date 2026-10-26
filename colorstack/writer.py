@@ -11,6 +11,7 @@ from dataclasses import replace
 from .geometry import Heights
 from .model import BARRIERS
 
+PA_WORDS = {"SET_PRESSURE_ADVANCE", "M900", "M572"}
 # a layer's bed / chamber changes and pauses wait until every layer below it is printed
 SETTLED = {"M140", "M190", "M141", "M191"} | BARRIERS
 
@@ -91,6 +92,7 @@ class Writer:
         self.scv = None
         self.vlim = ()
         self.fans = {}
+        self.state = {}            # machine state commands written: key -> line
         self.obj = None
         self.type = None
         self.width = None
@@ -212,8 +214,10 @@ class Writer:
             self._outside([f"M104 S{_fmt(t)}"])
             self.nozzle_t = t
 
-    def change_tool(self, tool, temp=None):
-        """Swap to tool, heading for temp (its temperature on the first layer it prints) during the swap."""
+    def change_tool(self, tool, temp=None, state=()):
+        """Swap to tool, heading for temp (its temperature on the first layer it prints) during the swap. state: the
+        machine state of the first line it prints; its pressure advance is set right after the swap, as Orca does
+        (the tower wipe already prints with it)."""
         if tool == self.tool:
             return
         self._end_object()
@@ -226,11 +230,19 @@ class Writer:
         self.out.extend(self.tc_extra)
         self.tool = tool
         self.last = None
-        # the swap moves the head, may touch fans, and comes back primed
+        # the swap moves the head, may touch fans and machine state, and comes back primed
         self.pos = None
         self.z = None
         self.fans = {}
+        self.state = {}
         self.retracted = False
+        self._state([(k, ln) for k, ln in state if k[0] in PA_WORDS])
+
+    def _state(self, items):
+        for k, ln in items:
+            if self.state.get(k) != ln:
+                self.emit(ln)
+                self.state[k] = ln
 
     def layer_start(self, layer):
         if layer.index in self.touched:
@@ -257,12 +269,22 @@ class Writer:
         for k in sorted(k for k in self.waiting if k <= self.settled):
             self._outside(self.waiting.pop(k))
 
-    def own_fans(self, p, tool, layer):
-        """A piece handed to another tool gets the fans the slicer set for that tool's lines of its kind there."""
-        if p.tool is None or p.tool == tool:
+    def own(self, p, tool, layer):
+        """A piece handed to another tool gets the fans and machine state (pressure advance) the slicer set for that
+        tool's lines of its kind there. Tower lines keep the loaded filament's pressure advance."""
+        if p.tool is None:
+            keep = tuple((k, ln) for k, ln in p.state if k[0] not in PA_WORDS)
+            return p if keep == p.state else replace(p, state=keep)
+        if p.tool == tool:
             return p
         fans = self.p.fans.get((tool, layer.index, p.type))
-        return p if fans is None or fans == p.fans else replace(p, fans=fans)
+        state = self.p.state_at(tool, layer.index, p.type)
+        changes = {}
+        if fans is not None and fans != p.fans:
+            changes["fans"] = fans
+        if state is not None and state != p.state:
+            changes["state"] = state
+        return replace(p, **changes) if changes else p
 
     def path(self, p, layer):
         # the loaded filament's temperature for this layer (a handed-over piece is printed by another tool than it
@@ -297,6 +319,7 @@ class Writer:
         if p.vlim and p.vlim != self.vlim:      # () = nothing set yet: the printer's own, nothing to restore
             self.emit("SET_VELOCITY_LIMIT " + " ".join(f"{k}={v}" for k, v in p.vlim))
             self.vlim = p.vlim
+        self._state(p.state)
         for k, v in p.fans.items():
             if self.fans.get(k) != v:
                 self.emit(f"M106 {k + ' ' if k else ''}S{v}")
@@ -398,11 +421,13 @@ class Writer:
                 self.left[layer.index] += len(w)
         for band in bands:
             for unit in band.order:
-                items = [[self.own_fans(p, unit[0], layer) for owner, p in w if owner == unit]
+                items = [[self.own(p, unit[0], layer) for owner, p in w if owner == unit]
                          for layer, w in zip(band.layers, band.work)]
                 parts = [[p for p in ps if p.tower is None] for ps in items]
-                first_layer = next((layer.index for layer, ps in zip(band.layers, parts) if ps), None)
-                self.change_tool(unit[0], None if first_layer is None else self.p.temp_at(unit[0], first_layer))
+                first_layer, first_path = next(((layer.index, ps[0]) for layer, ps in zip(band.layers, parts) if ps),
+                                               (None, None))
+                self.change_tool(unit[0], None if first_layer is None else self.p.temp_at(unit[0], first_layer),
+                                 first_path.state if first_path else ())
                 tool = unit[0]
                 # tower right after the swap; with tower_between only the wipe, walls and grid between layers
                 late = ("wall", "grid") if self.tower_between else ()

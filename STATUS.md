@@ -63,6 +63,25 @@ scope. Code, numbers and the research are parked in stash/nonplanar/ (NOTES.md).
   plain multicolour). Prime tower changed in 2.5: re-check the CP TOOLCHANGE / tower markers on a 2.5 file.
 
 ## Improvement sheet (2026-10-26, branch refine-compat; Rusti3D method: baseline, hypothesis, measure)
+RESUME HERE (2026-10-26 end of session). Branch refine-compat, not pushed. Done so far:
+1. Modules reorganized (model/parse/geometry/plan/staggered/writer/config/summary); outputs byte-identical.
+2. Tools: `tools/regress.py LABEL [files|--variants]` + `--diff A B`; `verify --fidelity` (state per mm + travels).
+   Test files (gitignored): samples/compat/ (user's 3MF, vegeta.gcode export), variants by
+   samples/compat/make_variants.py (tools/variant.py edits the 3MF and slices with the Orca 2.5 CLI; keys must be
+   listed in different_settings_to_system, objects dropped via printable=0). Results in work/regress/<label>/.
+3. FIX 1 done: machine-state commands (PA, M220/M221, M205, M572, M566) stay with their paths; the incoming
+   filament's PA right after each swap; handed-over pieces take the printing filament's state per feature; tower
+   keeps the loaded PA. Measured (fidelity, PA on kept lines): filaments variant 255 m -> 0, adaptive_pa 310 m -> 0.
+   Reference files: swaps/times unchanged; cube/support byte-identical, others differ only by M220 placement.
+Baselines: base (5 reference files), base-v (variants), work/baseline/vegeta.* (1176 -> 1130 swaps, 325 s: low gain,
+look at it with the island items below). Scarf variant: Orca CLI wrote no Z ramps even with seam_slope_type=all,
+conditional=0 - get a GUI-exported scarf file from the user.
+NEXT, in order (one fix, one measurement each): tool change block per tool (end G-code before T for the old filament,
+start G-code after T for the new; today the first swap's block is reused); firmware retraction (fw_retract variant:
+G10/G11 hoisted to layer start, plain G1 E retracts added 564 -> 1897); handed-over flow ratio/diameter + volumetric
+cap; replay the slicer's own travels where order is unchanged + per-tool retraction (travel variant); cooling
+metric (time between layers per spot vs original) then the cooling fix; fan speed-up timing (measure first).
+
 Compatibility / never worse quality (found in the audit, Orca 2.3.2 source + the user's files):
 - PA: Orca's per-filament SET_PRESSURE_ADVANCE after each swap (after `; CP TOOLCHANGE END`) is hoisted to the layer
   start; adaptive PA per feature is hoisted too. Tool change extras are the first swap's for every swap.

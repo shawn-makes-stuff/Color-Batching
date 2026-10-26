@@ -1,6 +1,6 @@
 """Regression run: process the reference files with fixed settings (not colorstack.toml) and record the results.
 
-python tools/regress.py LABEL [file ...]       writes work/regress/LABEL/*.gcode and LABEL.json
+python tools/regress.py LABEL [file ... | --variants]  writes work/regress/LABEL/*.gcode and LABEL.json
 python tools/regress.py --diff LABEL_A LABEL_B compares two runs (swaps, times, output hashes)
 """
 import copy
@@ -24,6 +24,9 @@ FILES = [
     "work/ECC_0.4_hat_Elegoo PLA _0.28_2h22m.gcode",            # Orca 2.5
     "samples/compat/vegeta.gcode",                              # PA on, tree supports, textured, 899 layers
 ]
+# the user's 3MF (spinner + TerrorCube) with features turned on: samples/compat/make_variants.py
+VARIANTS = [f"samples/compat/v/{n}.gcode" for n in ("small", "filaments", "adaptive_pa", "travel", "scarf_arcs",
+                                                     "fw_retract", "surface")]
 SETTINGS = {"nozzle": {"contact": 0.2}}
 OUT = ROOT / "work" / "regress"
 
@@ -63,4 +66,5 @@ if __name__ == "__main__":
     if sys.argv[1] == "--diff":
         diff(sys.argv[2], sys.argv[3])
     else:
-        process(sys.argv[1], sys.argv[2:] or FILES)
+        args = sys.argv[2:]
+        process(sys.argv[1], VARIANTS if args == ["--variants"] else args or FILES)

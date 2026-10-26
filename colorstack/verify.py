@@ -106,9 +106,16 @@ def _states(path, step=0.5):
     tool, typ, pa, temp, accel, speed, flow = 0, "", None, None, None, 100.0, 100.0
     fans = {}
     live = moving = False
-    for i, kind, v in read(load(path)):
+    lines = load(path)
+    # the first layer's temperature from the settings, as the parser does (start G-code may set it by macro)
+    m = next((re.match(r"^; nozzle_temperature_initial_layer = (.*)$", ln) for ln in lines
+              if ln.startswith("; nozzle_temperature_initial_layer =")), None)
+    initial = [float(x) for x in m.group(1).split(",")] if m else []
+    for i, kind, v in read(lines):
         if kind == "tool":
             tool = v[0]
+            if not live and initial:
+                temp = initial[min(tool, len(initial) - 1)]
         elif kind == "type":
             typ = v
             if v == "Custom" and live:
@@ -154,6 +161,31 @@ def _states(path, step=0.5):
     return out, starts
 
 
+def _travels(path):
+    """Travel style within the layers: retracts, wipes, Z hops, firmware retracts (G10), travel mm."""
+    out = dict.fromkeys(("retracts", "wipes", "hops", "G10", "travel_mm"), 0.0)
+    live = False
+    for i, kind, v in read(load(path)):
+        if kind == "layer" or kind == "comment" and v.startswith("; COLORSTACK"):
+            live = True
+        elif kind == "type" and v == "Custom" and live:
+            live = False
+        elif not live:
+            continue
+        elif kind == "comment" and v.startswith(";WIPE_START"):
+            out["wipes"] += 1
+        elif kind == "cmd" and v.split()[0].upper() == "G10":
+            out["G10"] += 1
+        elif kind == "move":
+            if v.de < 0 and v.xy < 1e-9:
+                out["retracts"] += 1
+            if v.z1 > v.z0 + 1e-6 and v.de == 0:
+                out["hops"] += 1
+            if v.de == 0:
+                out["travel_mm"] += v.xy
+    return out
+
+
 FIELDS = ("tool", "type", "speed", "flow", "PA", "fan", "other fans", "temperature", "accel", "speed %", "flow %")
 
 
@@ -163,7 +195,8 @@ def fidelity(original, processed, step=0.5):
     a, starts_a = _states(original, step)
     b, starts_b = _states(processed, step)
     near = [(0, 0)] + [(dx, dy) for dx in (-1, 0, 1) for dy in (-1, 0, 1) if dx or dy]
-    diffs = {}          # (field, kept | handed, type) -> mm
+    diffs = {}          # (field, kept | handed, type, + | - | "") -> mm
+    examples = {}       # same key -> ((z, x, y), original value, processed value), the first one found
     matched = missing = 0
     for (z, x, y), sa in a.items():
         sb = next((b[(z, x + dx, y + dy)] for dx, dy in near if (z, x + dx, y + dy) in b), None)
@@ -176,10 +209,14 @@ def fidelity(original, processed, step=0.5):
             same = (abs(sa[k] - sb[k]) <= 0.01 * max(abs(sa[k]), 1e-9) if isinstance(sa[k], float) and
                     isinstance(sb[k], float) else sa[k] == sb[k])
             if not same:
-                key = (FIELDS[k], group, sa[1])
+                way = ("+" if sb[k] > sa[k] else "-") if isinstance(sa[k], (int, float)) and isinstance(
+                    sb[k], (int, float)) else ""
+                key = (FIELDS[k], group, sa[1], way)
                 diffs[key] = diffs.get(key, 0.0) + step
-    return {"matched_mm": matched * step, "missing_mm": missing * step, "diffs": diffs,
-            "starts": {t: (starts_a.get(t, 0), starts_b.get(t, 0)) for t in starts_a.keys() | starts_b.keys()}}
+                examples.setdefault(key, ((z, x * 0.1, y * 0.1), sa[k], sb[k]))
+    return {"matched_mm": matched * step, "missing_mm": missing * step, "diffs": diffs, "examples": examples,
+            "starts": {t: (starts_a.get(t, 0), starts_b.get(t, 0)) for t in starts_a.keys() | starts_b.keys()},
+            "travels": (_travels(original), _travels(processed))}
 
 
 def check(original, processed, nozzle, res=0.05):
@@ -285,11 +322,15 @@ def main():
     if a.fidelity:
         r = fidelity(a.original, a.processed)
         print(f"matched {r['matched_mm']:.0f} mm, not found {r['missing_mm']:.0f} mm")
-        for (field, group, typ), mm in sorted(r["diffs"].items(), key=lambda kv: -kv[1]):
-            print(f"  {field:12} {group:7} {typ:28} {mm:10.1f} mm")
+        for key, mm in sorted(r["diffs"].items(), key=lambda kv: -kv[1]):
+            field, group, typ, way = key
+            (z, x, y), va, vb = r["examples"][key]
+            print(f"  {field:12} {way:1} {group:7} {typ:24} {mm:10.1f} mm   e.g. z{z} x{x:.1f} y{y:.1f}: {va} -> {vb}")
         print("extrusion starts (original -> processed):")
         for typ, (x, y) in sorted(r["starts"].items()):
             print(f"  {typ:28} {x:6} -> {y:6}")
+        ta, tb = r["travels"]
+        print("travels: " + ", ".join(f"{k} {ta[k]:.0f} -> {tb[k]:.0f}" for k in ta))
         return
     nozzle = load_config(a.config)["nozzle"]
     if a.contact is not None:

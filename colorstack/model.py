@@ -34,6 +34,7 @@ class Path:
     temp: float | None = None  # nozzle temperature the slicer printed it at
     vlim: tuple = ()          # other SET_VELOCITY_LIMIT parameters in force, ((name, value), ...)
     height: float | None = None   # line height the slicer wrote for it (;HEIGHT: after ;TYPE:), None = the layer's
+    state: tuple = ()         # machine state commands in force (PA, speed / flow factor, jerk): ((key, line), ...)
 
     @property
     def visible(self):
@@ -72,6 +73,7 @@ class Program:
     first_temp: float | None = None   # nozzle temperature when the layers start
     temps: dict = field(default_factory=dict)    # tool -> nozzle temperature per layer index (see temp_at)
     fans: dict = field(default_factory=dict)     # (tool, layer index, type) -> fans the slicer set for it
+    states: dict = field(default_factory=dict)   # (tool, type) -> [(layer index, state)] the slicer printed it under
     travel: dict = field(default_factory=dict)   # retract, retract_f, deretract_f, z_hop, travel_f, min_travel
     unknown: Counter = field(default_factory=Counter)
 
@@ -80,6 +82,12 @@ class Program:
         the tool had nothing on takes the nearest one below, else above). None if unknown."""
         col = self.temps.get(tool)
         return col[index] if col else None
+
+    def state_at(self, tool, index, typ):
+        """Machine state the slicer printed tool's lines of type typ under at layer index (the nearest layer that has
+        them; any type of the tool if it never printed that type). None if the tool prints nothing."""
+        rows = self.states.get((tool, typ)) or [r for (t, _), rs in self.states.items() if t == tool for r in rs]
+        return min(rows, key=lambda r: abs(r[0] - index))[1] if rows else None
 
     def setting_list(self, key, cast=float, default=None):
         if key not in self.settings:

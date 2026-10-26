@@ -15,6 +15,8 @@ DROP = {"G92", "M73", "SET_PRINT_STATS_INFO", "G17", "M117", "SET_VELOCITY_LIMIT
         "G90", "G91"}
 
 TEMPS = {"M104", "M109", "M140", "M190", "M141", "M191"}
+# machine state the slicer sets between features (Orca: per-filament and adaptive pressure advance): kept with each path
+STATE = {"SET_PRESSURE_ADVANCE", "M900", "M572", "M220", "M221", "M205", "M566"}
 
 
 def _parse_settings(lines):
@@ -65,6 +67,7 @@ def parse(path_in):
     initial = prog.setting_list("nozzle_temperature_initial_layer") or prog.setting_list("first_layer_temperature")
     temp = initial[min(pre_tools[-1] if pre_tools else 0, len(initial) - 1)] if initial else None
     fans = {}
+    state = {}         # key -> line, see _state_key
     path = None
     seq = 0
     retracted = hopped = False
@@ -108,7 +111,8 @@ def parse(path_in):
                 if path is None:
                     tl = None if typ in NEUTRAL_TYPES else tool
                     path = Path(tl, typ, width, m.z1, [(m.x0, m.y0)], [], [], accel, dict(fans), obj,
-                                seq, retracted, hopped, scv=scv, temp=temp, vlim=vlim, height=height)
+                                seq, retracted, hopped, scv=scv, temp=temp, vlim=vlim, height=height,
+                                state=tuple(sorted(state.items())))
                     if typ in NEUTRAL_TYPES:
                         path.tower, path.block = tower_sec, block if tower_sec == "wipe" else -1
                 path.pts.append((m.x1, m.y1))
@@ -214,6 +218,9 @@ def parse(path_in):
             elif w in TEMPS:
                 close()
                 cur.cmds.append(val)
+            elif w in STATE:
+                close()
+                state[_state_key(w, val)] = val
             elif w == "SET_VELOCITY_LIMIT" and (extra := {k.upper(): v for k, v in re.findall(r"(\w+)=(\S+)", val)
                                                           if k.upper() not in ("ACCEL", "SQUARE_CORNER_VELOCITY")}):
                 close()
@@ -246,6 +253,9 @@ def parse(path_in):
         for p in L.paths:
             if p.tool is not None:
                 prog.fans.setdefault((p.tool, L.index, p.type), p.fans)
+                rows = prog.states.setdefault((p.tool, p.type), [])
+                if not rows or rows[-1][0] != L.index:
+                    rows.append((L.index, p.state))
     for t in {p.tool for L in layers for p in L.paths if p.tool is not None}:
         col = [next((p.temp for p in L.paths if p.tool == t and p.temp is not None), None) for L in layers]
         for order in (range(len(col)), range(len(col) - 1, -1, -1)):     # fill from below, then from above
@@ -277,6 +287,14 @@ def parse(path_in):
         "min_travel": first_setting(settings, "retraction_minimum_travel", 1.0),
     }
     return prog
+
+
+def _state_key(word, line):
+    """What a state command sets: its word and parameter names (SET_PRESSURE_ADVANCE ADVANCE= and SMOOTH_TIME= are
+    separate settings)."""
+    code = line.split(";")[0]
+    names = re.findall(r"\b([A-Za-z_]+)\s*=", code) + re.findall(r"\s([A-Za-z])-?\.?\d", code)
+    return word, tuple(sorted({n.upper() for n in names}))
 
 
 def _temp(cmd, tool, current):
