@@ -24,7 +24,7 @@ FILES = [
     "work/ECC_0.4_hat_Elegoo PLA _0.28_2h22m.gcode",            # Orca 2.5
     "samples/compat/vegeta.gcode",                              # PA on, tree supports, textured, 899 layers
 ]
-# the user's 3MF (spinner + TerrorCube) with features turned on: samples/compat/make_variants.py
+# the user's 3MF (spinner + TerrorCube) with features turned on: tools/make_variants.py
 VARIANTS = [f"samples/compat/v/{n}.gcode" for n in ("small", "filaments", "adaptive_pa", "travel", "scarf_arcs",
                                                      "fw_retract", "surface")]
 SETTINGS = {"nozzle": {"contact": 0.2}}

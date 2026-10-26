@@ -67,7 +67,7 @@ RESUME HERE (2026-10-26 end of session). Branch refine-compat, not pushed. Done 
 1. Modules reorganized (model/parse/geometry/plan/staggered/writer/config/summary); outputs byte-identical.
 2. Tools: `tools/regress.py LABEL [files|--variants]` + `--diff A B`; `verify --fidelity` (state per mm + travels).
    Test files (gitignored): samples/compat/ (user's 3MF, vegeta.gcode export), variants by
-   samples/compat/make_variants.py (tools/variant.py edits the 3MF and slices with the Orca 2.5 CLI; keys must be
+   tools/make_variants.py (tools/variant.py edits the 3MF and slices with the Orca 2.5 CLI; keys must be
    listed in different_settings_to_system, objects dropped via printable=0). Results in work/regress/<label>/.
 3. FIX 1 done: machine-state commands (PA, M220/M221, M205, M572, M566) stay with their paths; the incoming
    filament's PA right after each swap; handed-over pieces take the printing filament's state per feature; tower
