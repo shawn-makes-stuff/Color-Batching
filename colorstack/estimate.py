@@ -8,7 +8,7 @@ import math
 import re
 from dataclasses import dataclass
 
-from .gcode import first_setting
+from .model import first_setting
 from .reader import read
 
 
@@ -78,63 +78,6 @@ def anchor(o, p, slicer, lim):
         o["total_s"] = slicer
         p["total_s"] = (slicer + (p["motion_s"] - o["motion_s"]) + (p["dwell_s"] - o["dwell_s"])
                         - (o["swaps"] - p["swaps"]) * each)
-
-
-_NUM = re.compile(r"([A-Za-z]+)(\d+(?:\.\d+)?)")
-
-
-def stamp_progress(lines, steps, each, total):
-    """Progress lines (M73) from our timeline, in the file's own format. The file's M73 lines before the first
-    move are the templates: P/Q get our percent, every other number (R, Anycubic QuietR/SportR/NormalR, Prusa S)
-    is scaled from its start value by our remaining time. A line follows each change of percent or remaining
-    minute; the closing lines after the last move stay. Returns the new lines."""
-    at = [k for k, ln in enumerate(lines) if ln.startswith("M73 ")]
-    if not at or total <= 0:
-        return lines
-    first_move = next((k for k, _ in steps), len(lines))
-    templates = [lines[k] for k in at if k < first_move] or [lines[at[0]]]
-    ref = next((float(m.group(2)) for t in templates for m in _NUM.finditer(t) if m.group(1) == "R"), None)
-    if not ref:
-        return lines
-
-    def render(pct, rem_s, start):
-        scale = rem_s / 60 / ref
-
-        def num(m, in_code):
-            name, val = m.group(1), m.group(2)
-            if name == "M":
-                return m.group(0)
-            if name in ("P", "Q"):
-                return f"{name}{pct}"
-            x = float(val) * scale
-            dec = len(val.split(".")[1]) if "." in val else 0
-            if dec and (start or not in_code):     # the slicer writes decimals only on the first line
-                return f"{name}{x:.{dec}f}"
-            return f"{name}{int(x)}"
-        out = []
-        for t in templates:
-            code, sep, comment = t.partition(";")
-            out.append(_NUM.sub(lambda m: num(m, True), code) + sep + _NUM.sub(lambda m: num(m, False), comment))
-        return out
-
-    after = {}
-    elapsed, last = 0.0, (0, int(total // 60))
-    for k, sec in steps:
-        elapsed += each if sec is None else sec
-        rem = max(0.0, total - elapsed)
-        key = (min(99, int(elapsed / total * 100)), int(rem // 60))
-        if key != last:
-            after[k] = render(key[0], rem, False)
-            last = key
-    end = steps[-1][0] if steps else len(lines)
-    out = []
-    for k, ln in enumerate(lines):
-        if k == at[0]:
-            out += render(0, total, True)
-        elif not ln.startswith("M73 ") or k > end:
-            out.append(ln)
-        out += after.get(k, [])
-    return out
 
 
 def _flush(moves, scv, steps=None):

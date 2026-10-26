@@ -12,49 +12,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from .pipeline import DEFAULTS, apply, load_config, run, save_config
+from .config import DEFAULTS, HELP, apply, load_config, save_config
+from .pipeline import run
 
 ROOT = Path(__file__).resolve().parent.parent
 VIEWER = ROOT / "viewer" / "index.html"
 WORK = ROOT / "work"
 
-# key -> (label, unit, help); the README's settings table says the same
-HELP = {
-    "nozzle.tip_diameter": ("Tip diameter", "mm", "Flat face at the nozzle tip."),
-    "nozzle.cone_angle": ("Cone angle", "°", "Cone half-angle from vertical."),
-    "nozzle.clear_height": ("Clear height", "mm", "How far the tip sticks out below the heater block / sock / duct."),
-    "nozzle.contact": ("Edge contact", "mm", "How much taller a neighbouring colour's edge may be while the nozzle "
-                       "face slides past it. 0.2 = two layers per colour, 0.4 = three."),
-    "stack.max_band_layers": ("Max layers per colour", "", "Most layers one colour prints before the next swap."),
-    "stack.surface_tolerance": ("Edge shift", "mm", "How far a colour edge on a visible surface may move. 0 = never."),
-    "stack.min_piece": ("Min piece", "mm", "Shorter leftovers between handed-over pieces are handed over too."),
-    "stack.per_object": ("Per-object batching", "", "Finish one object's block before moving to the next, where "
-                         "that is faster (both ways are planned and the faster kept)."),
-    "stack.staggered": ("Staggered colours", "", "Each colour on its own schedule: fewer swaps where 3+ colours "
-                        "share layers. Both ways are planned, the faster kept. Slower processing on those files."),
-    "stack.resolution": ("Resolution", "mm", "Sampling step for the collision planning."),
-    "cooling.respect_min_layer_time": ("Respect minimum layer time", "", "Slow regions printed again straight on top "
-                                       "of themselves down to the minimum layer time, as the slicer does. Off: keep "
-                                       "the sliced speeds (the fan rule still applies)."),
-    "cooling.stacked_fan": ("Fan for stacked regions", "", "Raise the part fan on regions printed again straight on "
-                            "top of themselves, by the slicer's own fan rule."),
-    "cooling.lift_wait": ("Lift and wait", "", "If a stacked region is still under the minimum layer time at "
-                          "minimum speed, lift clear and wait out the rest. Can leave ooze strings."),
-    "cooling.min_layer_time": ("Min layer time", "s", "Minimum layer time for stacked regions. 0 = the file's own "
-                               "(per filament, where its slow-down is on)."),
-    "cooling.tower_between": ("Tower between layers", "", "Print the prime tower's walls and grid between a colour's "
-                              "stacked layers, as cooling time. The wipe still comes right after the swap."),
-    "swap.lift": ("Swap lift", "mm", "Before each colour change, lift this far above the tallest point printed so "
-                  "far (at least the slicer's Z hop), so the trip to the purge tray clears every stack."),
-    "export.printer_host": ("Printer", "", "Moonraker address for Send to printer, e.g. 192.168.1.20 or "
-                            "192.168.1.20:7125."),
-    "printer.max_velocity": ("Max velocity", "mm/s", "Fallback for the time estimate, for files without the "
-                             "slicer's machine limits."),
-    "printer.max_accel": ("Max accel", "mm/s²", "Fallback for the time estimate."),
-    "printer.square_corner_velocity": ("Square corner velocity", "mm/s", "Fallback for the time estimate."),
-    "printer.max_z_velocity": ("Max Z velocity", "mm/s", "Fallback for the time estimate."),
-    "printer.max_z_accel": ("Max Z accel", "mm/s²", "Fallback for the time estimate."),
-}
 
 state = {"input": None}
 busy = threading.Lock()

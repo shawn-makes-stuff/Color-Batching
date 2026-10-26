@@ -4,10 +4,11 @@ outer surface colours.  python -m colorstack.verify original.gcode processed.gco
 """
 import argparse
 import math
+import re
 
 import numpy as np
 
-from .pipeline import CONFIG_PATH, load_config
+from .config import CONFIG_PATH, load_config
 from .reader import load, read
 
 
@@ -95,6 +96,90 @@ def surface_colours(original, processed, res=0.1):
                 got.setdefault(c, tool)
     wrong = sum(1 for c, t in surface.items() if c in got and got[c] != t)
     return len(surface) * res, wrong * res
+
+
+def _states(path, step=0.5):
+    """Samples every `step` mm along each extrusion, with the machine state it printed under:
+    {(z, x, y): (tool, type, F, flow mm/mm, PA, fan, other fans, nozzle temp, accel, speed %, flow %)}, and the number
+    of extrusion starts per feature type (an extrusion right after a travel or a retract)."""
+    out, starts = {}, {}
+    tool, typ, pa, temp, accel, speed, flow = 0, "", None, None, None, 100.0, 100.0
+    fans = {}
+    live = moving = False
+    for i, kind, v in read(load(path)):
+        if kind == "tool":
+            tool = v[0]
+        elif kind == "type":
+            typ = v
+            if v == "Custom" and live:
+                live = False
+        elif kind == "layer" or kind == "comment" and v.startswith("; COLORSTACK"):
+            live = True        # our output: layers follow the summary
+        elif kind == "accel":
+            accel = v
+        elif kind == "cmd":
+            w = v.split()[0].upper()
+            words = dict(re.findall(r"\b([A-Z])(-?\d*\.?\d+)", v.upper()))
+            if w == "SET_PRESSURE_ADVANCE" and "ADVANCE=" in v.upper():
+                pa = float(re.search(r"ADVANCE=(-?\d*\.?\d+)", v.upper()).group(1))
+            elif w in ("M900", "M572"):
+                pa = float(words.get("K", words.get("S", pa or 0)))
+            elif w in ("M104", "M109") and "S" in words and ("T" not in words or int(float(words["T"])) == tool):
+                temp = float(words["S"])
+            elif w in ("M106", "M107"):
+                key = "" if words.get("P", "0") == "0" else "P" + words["P"]
+                fans[key] = 0 if w == "M107" else int(float(words.get("S", 255)))
+            elif w == "M220" and "S" in words:
+                speed = float(words["S"])
+            elif w == "M221" and "S" in words:
+                flow = float(words["S"])
+        elif kind == "move":
+            extruding = v.de > 0 and v.xy > 1e-9
+            if not extruding:
+                if v.xy > 1e-9 or v.de != 0 or abs(v.z1 - v.z0) > 1e-9:   # not a feedrate-only line
+                    moving = False
+                continue
+            if not live or typ == "Prime tower":
+                continue
+            if not moving:
+                starts[typ] = starts.get(typ, 0) + 1
+                moving = True
+            n = max(1, int(v.xy / step))
+            other = tuple(sorted((k, s) for k, s in fans.items() if k))
+            state = (tool, typ, round(v.f), round(v.de / v.xy, 4), pa, fans.get("", 0), other, temp, accel, speed, flow)
+            for t in (np.arange(n) + 0.5) / n:
+                key = (round(v.z0 + (v.z1 - v.z0) * t, 2), round((v.x0 + (v.x1 - v.x0) * t) / 0.1),
+                       round((v.y0 + (v.y1 - v.y0) * t) / 0.1))
+                out.setdefault(key, state)
+    return out, starts
+
+
+FIELDS = ("tool", "type", "speed", "flow", "PA", "fan", "other fans", "temperature", "accel", "speed %", "flow %")
+
+
+def fidelity(original, processed, step=0.5):
+    """How the processed file prints the original's extrusions: per state field, the mm printed differently, split
+    into lines that kept their tool and lines handed to another tool; and extrusion starts per feature type."""
+    a, starts_a = _states(original, step)
+    b, starts_b = _states(processed, step)
+    near = [(0, 0)] + [(dx, dy) for dx in (-1, 0, 1) for dy in (-1, 0, 1) if dx or dy]
+    diffs = {}          # (field, kept | handed, type) -> mm
+    matched = missing = 0
+    for (z, x, y), sa in a.items():
+        sb = next((b[(z, x + dx, y + dy)] for dx, dy in near if (z, x + dx, y + dy) in b), None)
+        if sb is None:
+            missing += 1
+            continue
+        matched += 1
+        group = "kept" if sa[0] == sb[0] else "handed"
+        for k in range(1, len(FIELDS)):
+            same = (abs(sa[k] - sb[k]) <= 0.01 * max(abs(sa[k]), 1e-9) if isinstance(sa[k], float) and
+                    isinstance(sb[k], float) else sa[k] == sb[k])
+            if not same:
+                key = (FIELDS[k], group, sa[1])
+                diffs[key] = diffs.get(key, 0.0) + step
+    return {"matched_mm": matched * step, "missing_mm": missing * step, "diffs": diffs,
+            "starts": {t: (starts_a.get(t, 0), starts_b.get(t, 0)) for t in starts_a.keys() | starts_b.keys()}}
 
 
 def check(original, processed, nozzle, res=0.05):
@@ -195,7 +280,17 @@ def main():
     ap.add_argument("-c", "--config", default=str(CONFIG_PATH))
     ap.add_argument("--contact", type=float, help="override nozzle.contact")
     ap.add_argument("--set", action="append", default=[], metavar="nozzle.KEY=VALUE")
+    ap.add_argument("--fidelity", action="store_true", help="only compare print state per extruded mm")
     a = ap.parse_args()
+    if a.fidelity:
+        r = fidelity(a.original, a.processed)
+        print(f"matched {r['matched_mm']:.0f} mm, not found {r['missing_mm']:.0f} mm")
+        for (field, group, typ), mm in sorted(r["diffs"].items(), key=lambda kv: -kv[1]):
+            print(f"  {field:12} {group:7} {typ:28} {mm:10.1f} mm")
+        print("extrusion starts (original -> processed):")
+        for typ, (x, y) in sorted(r["starts"].items()):
+            print(f"  {typ:28} {x:6} -> {y:6}")
+        return
     nozzle = load_config(a.config)["nozzle"]
     if a.contact is not None:
         nozzle["contact"] = a.contact

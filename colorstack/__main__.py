@@ -3,7 +3,8 @@ import argparse
 import time
 from pathlib import Path
 
-from .pipeline import CONFIG_PATH, apply, load_config, run
+from .config import CONFIG_PATH, apply, load_config
+from .pipeline import run
 from .estimate import fmt_time
 
 

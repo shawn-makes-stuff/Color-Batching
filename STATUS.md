@@ -62,6 +62,27 @@ scope. Code, numbers and the research are parked in stash/nonplanar/ (NOTES.md).
   colour mixing with enable_mixed_color_sublayer (sub-layers at different Z inside one layer; whole-layer mixing is
   plain multicolour). Prime tower changed in 2.5: re-check the CP TOOLCHANGE / tower markers on a 2.5 file.
 
+## Improvement sheet (2026-10-26, branch refine-compat; Rusti3D method: baseline, hypothesis, measure)
+Compatibility / never worse quality (found in the audit, Orca 2.3.2 source + the user's files):
+- PA: Orca's per-filament SET_PRESSURE_ADVANCE after each swap (after `; CP TOOLCHANGE END`) is hoisted to the layer
+  start; adaptive PA per feature is hoisted too. Tool change extras are the first swap's for every swap.
+- Every mid-layer state command (M220/M221, M205 jerk, M572, G10/G11 firmware retraction) is hoisted to the layer start.
+- Handed-over pieces keep the original filament's flow ratio / diameter E, speed (max volumetric speed of the new
+  filament not checked), PA and retraction (temperature and fan already follow the printing tool).
+- Travels are all regenerated: avoid-crossing-walls routes, slope/spiral lift, wipe on loops, restart extra lost.
+  Retraction / hop from filament 0 only.
+- Fan speed-up time (Orca FanMover): a reordered overhang gets its fan late.
+- Cooling: stacked regions either uncooled (default) or outer walls slowed (speed-contrast lines);
+  dont_slow_down_outer_wall ignored.
+- Scarf seams (Z-changing extrusion) refused.
+- Measuring tool: `colorstack.verify --fidelity` (per extruded mm: tool, type, speed, flow, PA, fans, temperature,
+  accel, M220/M221 against the original; extrusion starts per feature).
+Planning (from the user, 2026-10-26):
+- Island print order: colour 1 has islands with an overhang that colour 2 would have to print under (collision),
+  same with colour 1 and 2 islands that both overhang. Optimise the order of these islands.
+- Per-island printing: print one island's whole colour stack, then travel to the next island's stack (print the
+  block before travelling), like per-object batching but per connected island.
+
 ## Open
 - Diagonal cube print (2026-10-16): faint lines at every colour change = speed contrast. With respect_min_layer_time
   on, stacked layers' outer walls ran ~31 mm/s, the layers at each swap at the sliced 130 mm/s (seen in the viewer's

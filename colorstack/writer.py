@@ -8,10 +8,8 @@ before its end G-code.
 import math
 from dataclasses import replace
 
-import numpy as np
-
-from .gcode import BARRIERS
-from .plan import Grid, densify
+from .geometry import Heights
+from .model import BARRIERS
 
 # a layer's bed / chamber changes and pauses wait until every layer below it is printed
 SETTLED = {"M140", "M190", "M141", "M191"} | BARRIERS
@@ -23,36 +21,6 @@ def _fmt(v):
 
 def _print_time(paths):
     return sum(math.dist(p.pts[i], p.pts[i + 1]) / (p.f[i] / 60) for p in paths for i in range(len(p.e)) if p.f[i] > 0)
-
-
-class Heights:
-    """Tallest plastic printed so far, on a grid, for travels that lift only as high as they must."""
-
-    def __init__(self, program, res=0.5):
-        self.grid = Grid(program, res)
-        self.h = np.zeros(self.grid.shape)
-        self.pad = max(p.width for L in program.layers for p in L.paths) / 2 + res
-
-    def add(self, p):
-        r, c = self.grid.cells(densify(p, self.grid.res / 2)[0])
-        np.maximum.at(self.h, (r, c), p.z)
-
-    def max_near(self, a, b, radius):
-        """Tallest plastic within radius of the segment a-b (line width and grid step added)."""
-        g, radius = self.grid, radius + self.pad
-        c0 = max(0, int((min(a[0], b[0]) - radius - g.x0) / g.res))
-        c1 = min(g.shape[1], int((max(a[0], b[0]) + radius - g.x0) / g.res) + 2)
-        r0 = max(0, int((min(a[1], b[1]) - radius - g.y0) / g.res))
-        r1 = min(g.shape[0], int((max(a[1], b[1]) + radius - g.y0) / g.res) + 2)
-        if c0 >= c1 or r0 >= r1:
-            return 0.0
-        px, py = np.meshgrid(g.x0 + np.arange(c0, c1) * g.res, g.y0 + np.arange(r0, r1) * g.res)
-        dx, dy = b[0] - a[0], b[1] - a[1]
-        n2 = dx * dx + dy * dy
-        t = np.clip(((px - a[0]) * dx + (py - a[1]) * dy) / n2, 0, 1) if n2 > 0 else 0.0
-        near = np.hypot(px - a[0] - t * dx, py - a[1] - t * dy) <= radius
-        sub = self.h[r0:r1, c0:c1][near]
-        return float(sub.max()) if sub.size else 0.0
 
 
 class Writer:
