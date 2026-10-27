@@ -150,14 +150,11 @@
            font-variant-numeric: tabular-nums; pointer-events: none; max-width: calc(50% - 20px); backdrop-filter: blur(6px);
            white-space: nowrap; overflow: hidden; }
   .stats:empty { display: none; }
-  #statsB { left: calc(50% + 10px); }
   .divider { position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; background: var(--line); }
   #wrap.narrow .stats { max-width: calc(100% - 20px); }
-  #wrap.narrow #statsB { top: calc(50% + 10px); left: 10px; }
   #wrap.narrow .divider { left: 0; right: 0; top: 50%; bottom: auto; width: auto; height: 1px; }
-  #wrap.cmp-slider .divider, #wrap.cmp-off .divider { display: none; }
-  #wrap.cmp-off #statsA.hidden-print, #wrap.cmp-off #statsB.hidden-print { display: none; }
-  #wrap.cmp-slider #statsB, #wrap.cmp-off #statsB { left: auto; right: 74px; top: 10px; }
+  #wrap.cmp-slider .divider, #wrap.cmp-single .divider { display: none; }
+  #side .stats.hidden-print { display: none; }
   #split { position: absolute; top: 0; bottom: 0; width: 24px; margin-left: -12px; cursor: ew-resize; z-index: 3;
            touch-action: none; }
   #split::before { content: ""; position: absolute; top: 0; bottom: 0; left: 11px; width: 2px; background: var(--accent); }
@@ -178,6 +175,13 @@
   #legend div { display: flex; align-items: center; gap: 7px; white-space: nowrap; line-height: 1.65; }
   #legend i { width: 10px; height: 10px; border-radius: 3px; flex: none; }
   #legend b { display: block; margin-bottom: 2px; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+  #preview { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 6px 10px; padding: 8px 10px;
+             border-radius: 9px; background: color-mix(in srgb, var(--panel) 88%, transparent); border: 1px solid var(--line);
+             box-shadow: var(--shadow); backdrop-filter: blur(6px); pointer-events: auto; font-size: 12px; }
+  #preview[hidden] { display: none; }
+  #preview label { color: var(--muted); white-space: nowrap; }
+  #preview select { height: 26px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 7px; padding: 0 6px;
+                    color: var(--text); }
 
   /* layer rail */
   #rail { width: 64px; position: absolute; right: 0; top: 0; bottom: 0; }
@@ -248,8 +252,16 @@
     <canvas id="c"></canvas>
     <div class="divider"></div>
     <div id="split" hidden role="slider" aria-label="Original / ColorStack" tabindex="0"><span></span></div>
-    <div class="stats info" id="statsB"></div>
-    <div id="side"><div id="legend"></div><div class="stats info" id="statsA"></div></div>
+    <div id="side"><div id="legend"></div><div class="stats info" id="statsA"></div><div class="stats info" id="statsB"></div>
+      <div id="preview" hidden>
+        <label for="viewMode">Print Overview</label>
+        <select id="viewMode"><option value="0">Filament</option><option value="1">Line type</option>
+          <option value="spd">Speed</option><option value="h">Height</option><option value="w">Width</option>
+          <option value="flow">Volumetric flow</option><option value="fan">Fan speed</option><option value="temp">Temperature</option></select>
+        <label for="compare">Print Preview</label>
+        <select id="compare"><option value="original">Original</option><option value="colorstack">ColorStack</option>
+          <option value="side">Side by side</option><option value="slider">Slider</option></select>
+      </div></div>
     <div id="drop"><div><b>No print loaded</b>Open an Orca G-code file. The original plays on the left and the ColorStack version on the right, on the same clock.</div></div>
   </div>
   <div id="rail">
@@ -265,13 +277,6 @@
   <button id="play" title="Play / pause" aria-label="Play"></button>
   <input type="range" id="time" min="0" max="1000" value="1000" aria-label="Playback time">
   <span id="clock" title="Playback clock: distance / feedrate, no acceleration. The settings panel shows the real estimate."></span>
-  <span class="lbl">View</span>
-  <select id="viewMode" aria-label="Colour by"><option value="0">Filament</option><option value="1">Line type</option>
-    <option value="spd">Speed</option><option value="h">Height</option><option value="w">Width</option>
-    <option value="flow">Volumetric flow</option><option value="fan">Fan speed</option><option value="temp">Temperature</option></select>
-  <span class="lbl">Compare</span>
-  <select id="compare" aria-label="Compare"><option value="side">Side by side</option><option value="slider">Slider</option>
-    <option value="off">Off</option></select>
   <span class="lbl">Speed</span>
   <select id="speed" aria-label="Playback speed"><option value="60">60&times;</option><option value="300" selected>300&times;</option><option value="1200">1200&times;</option><option value="5000">5000&times;</option></select>
   <span class="lbl standalone-only">Swap</span>
@@ -1024,17 +1029,20 @@ const memory = (() => { try { return window.localStorage; } catch { return null;
 function remember(key, value) { try { memory?.setItem("colorstack." + key, value); } catch { /* private window */ } }
 function recall(key) { try { return memory?.getItem("colorstack." + key); } catch { return null; } }
 let compare = "side", split = 0.5;
+const SINGLE = { original: 0, colorstack: 1 };          // Print Preview modes that show one print
 function setCompare(c) {
   compare = c;
   $("compare").value = c;
   remember("compare", c);
   wrap.classList.toggle("cmp-slider", c === "slider");
-  wrap.classList.toggle("cmp-off", c === "off");
+  wrap.classList.toggle("cmp-single", c in SINGLE);
   $("split").hidden = c !== "slider";
   $("split").style.left = split * 100 + "%";
-  // Off: the processed print (else the original) fills the view, its box only
-  $("statsA").classList.toggle("hidden-print", c === "off" && !!prints[1]);
-  $("statsB").classList.toggle("hidden-print", c === "off" && !prints[1]);
+  // one print shown: only its box (ColorStack falls back to the original until there is a processed print)
+  const shown = c in SINGLE ? (SINGLE[c] === 1 && prints[1] ? 1 : 0) : -1;
+  $("statsA").classList.toggle("hidden-print", shown === 1);
+  $("statsB").classList.toggle("hidden-print", shown === 0);
+  $("preview").hidden = !prints.some(Boolean);
 }
 $("compare").onchange = (e) => setCompare(e.target.value);
 {
@@ -1071,7 +1079,7 @@ function render(now) {
   }
   if (flat && camera.quaternion.angleTo(flatQuat) > 1e-3) flat = false;     // rotated away: perspective again
   // draw only when something that affects the picture changed (500k-segment files are heavy)
-  const sig = [w, h, flat, hovered, compare, split, ...camera.position.toArray(), ...camera.quaternion.toArray(), U.uMode.value, U.uZmin.value, U.uZmax.value,
+  const sig = [w, h, flat, hovered, compare, split, viewMode, U.uValMin.value, U.uValMax.value, ...camera.position.toArray(), ...camera.quaternion.toArray(), U.uMode.value, U.uZmin.value, U.uZmax.value,
     clipLo.constant, clipHi.constant, scenes[0].background?.getHex(), $("travel").checked,
     ...prints.map((p) => (p ? `${p.mesh.id},${p.mesh.geometry.instanceCount},${p.travLines.geometry.drawRange.count},${p.mesh.material.uniforms.uFrac.value.toFixed(3)}` : "-")),
     ...nozzles.map((m) => `${m.visible},${m.position.x.toFixed(3)},${m.position.y.toFixed(3)},${m.position.z.toFixed(3)}`)].join();
@@ -1091,12 +1099,12 @@ function render(now) {
       renderer.render(scenes[i], cam);
     }
   } else {
-    // one view, one camera: Off shows one print; Slider shows the original left of the handle, ColorStack right
+    // one view, one camera: Original / ColorStack show one print; Slider the original left of the handle, ColorStack right
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
     const cam = viewCamera();
     renderer.setViewport(0, 0, w, h);
-    const sx = compare === "off" ? (prints[1] ? 0 : w) : Math.round(split * w);
+    const sx = compare in SINGLE ? (SINGLE[compare] === 1 && prints[1] ? 0 : w) : Math.round(split * w);
     for (const [i, x0, x1] of [[0, 0, sx], [1, sx, w]]) {
       if (x1 - x0 < 1) continue;
       renderer.setScissor(x0, 0, x1 - x0, h);
@@ -1179,7 +1187,8 @@ function setMode(m) {
 }
 $("viewMode").onchange = (e) => setMode(e.target.value);
 if ([...$("viewMode").options].some((o) => o.value === recall("viewMode"))) setMode(recall("viewMode"));
-if (["side", "slider", "off"].includes(recall("compare"))) setCompare(recall("compare"));
+{ const c = recall("compare") === "off" ? "colorstack" : recall("compare");     // "off" was the earlier name
+  if (["original", "colorstack", "side", "slider"].includes(c)) setCompare(c); }
 $("swapS").onchange = () => { prints.forEach((p) => p && timeline(p)); update(); };
 
 // ---------- app mode (settings + process), only when colorstack.app serves this page ----------
