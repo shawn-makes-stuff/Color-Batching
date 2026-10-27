@@ -63,6 +63,16 @@ scope. Code, numbers and the research are parked in stash/nonplanar/ (NOTES.md).
   plain multicolour). Prime tower changed in 2.5: re-check the CP TOOLCHANGE / tower markers on a 2.5 file.
 
 ## Improvement sheet (2026-10-26, branch refine-compat; Rusti3D method: baseline, hypothesis, measure)
+C++ PORT (branch color-batching, plan in docs/CPP_PLAN.md; build: cmake -S cpp -B cpp/build -G "Visual Studio 17 2022"
+-A x64 && cmake --build cpp/build --config Release; MSVC /fp:precise = CPython's C runtime on Windows):
+- step 1 reader: identical events on 11 files (tools/dump_events.py vs cpp/build/Release/dump_events.exe).
+- step 2 parser: identical program dumps on 13 files (tools/dump_program.py vs dump_program.exe).
+- step 3 writer: identical G-code for the same Python plan on 14 files (tools/dump_bands.py writes the plan + the
+  Python output, write_bands.exe writes the plan with the C++ writer).
+- next: step 4 estimate + summary (M73, header), then 5 geometry/plan, 6 staggered/tower/threads, 7 CLI + app, 8 CI.
+- exactness notes: math.hypot/dist = CPython vector_norm (cpp/core/pymath.hpp); numpy hypot = the C library's;
+  Python dict insertion order kept where it matters (fans, states, swap blocks); round() via to_chars/from_chars.
+
 RESUME HERE (2026-10-27). Branch refine-compat (pushed 2026-10-26 up to fix 1). Done so far:
 1. Modules reorganized (model/parse/geometry/plan/staggered/writer/config/summary); outputs byte-identical.
 2. Tools: `tools/regress.py LABEL [files|--variants]` + `--diff A B`; `verify --fidelity` (state per mm + travels).
