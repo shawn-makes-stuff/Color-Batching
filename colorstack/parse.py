@@ -51,7 +51,7 @@ def parse(path_in):
     preamble = lines[:first_layer]
     postamble = lines[end:]
 
-    prog = Program(settings, preamble, postamble, [], 0, [], header)
+    prog = Program(settings, preamble, postamble, [], 0, header)
     tool = 0
     fmt_set = accel_seen = False
     prog.stats_info = any(ln.startswith("SET_PRINT_STATS_INFO") for ln in lines)
@@ -68,13 +68,15 @@ def parse(path_in):
     temp = initial[min(pre_tools[-1] if pre_tools else 0, len(initial) - 1)] if initial else None
     fans = {}
     state = {}         # key -> line, see _state_key
+    lead = []          # moves and lines since the last extrusion, for the next path
     path = None
     seq = 0
     retracted = hopped = False
     in_toolchange = False
-    tc_lines, toolchange_extra = [], None
+    tc_lines, tc_split, tc_from = [], None, None    # the swap block's lines, where its T line was, the tool left
     tower_sec, block = "wall", -1
     retracts, deretracts, hops, travels = [], [], [], []
+    firmware = False
 
     def new_layer():
         nonlocal cur
@@ -112,7 +114,8 @@ def parse(path_in):
                     tl = None if typ in NEUTRAL_TYPES else tool
                     path = Path(tl, typ, width, m.z1, [(m.x0, m.y0)], [], [], accel, dict(fans), obj,
                                 seq, retracted, hopped, scv=scv, temp=temp, vlim=vlim, height=height,
-                                state=tuple(sorted(state.items())))
+                                state=tuple(sorted(state.items())), lead=tuple(lead))
+                    lead = []
                     if typ in NEUTRAL_TYPES:
                         path.tower, path.block = tower_sec, block if tower_sec == "wipe" else -1
                 path.pts.append((m.x1, m.y1))
@@ -120,6 +123,7 @@ def parse(path_in):
                 path.f.append(m.f)
             else:
                 close()        # travel, Z move, retract or deretract
+                lead.append(("move", m.x1, m.y1, m.z1, m.de, m.f))
                 if m.de < 0:
                     retracted = True
                     if m.xy < 1e-9:
@@ -143,6 +147,8 @@ def parse(path_in):
                     fmt_set = True
             else:
                 prog.first_tool = n
+            if in_toolchange:
+                tc_split, tc_from = len(tc_lines), tool
             tool = n
             continue
         if kind == "accel":
@@ -184,12 +190,15 @@ def parse(path_in):
             close()
             width = val
         elif kind == "comment":
-            if val.startswith("; CP TOOLCHANGE UNLOAD"):
-                in_toolchange, tc_lines = True, []
+            if val.startswith(";WIPE_START") or val.startswith(";WIPE_END"):
+                lead.append(("line", val))
+            elif val.startswith("; CP TOOLCHANGE UNLOAD"):
+                in_toolchange, tc_lines, tc_split = True, [], None
             elif val.startswith("; CP TOOLCHANGE WIPE"):
                 in_toolchange = False
-                if toolchange_extra is None:
-                    toolchange_extra = tc_lines
+                if tc_split is not None:    # filament end G-code before T, the next filament's start G-code after
+                    prog.toolchange_end.setdefault(tc_from, tc_lines[:tc_split])
+                    prog.toolchange_start.setdefault(tool, tc_lines[tc_split:])
                 close()
                 block += 1
                 tower_sec = "wipe"
@@ -227,6 +236,11 @@ def parse(path_in):
                 vlim = tuple(sorted({**dict(vlim), **extra}.items()))
             elif w in DROP:
                 pass
+            elif w in ("G10", "G11"):      # firmware retraction: a retract / unretract like any other
+                close()
+                retracted = w == "G10"
+                firmware = True
+                lead.append(("line", w))
             elif in_toolchange:
                 tc_lines.append(val)
             elif w not in ("G4", "M400"):
@@ -234,7 +248,6 @@ def parse(path_in):
                 cur.cmds.append(val)
                 prog.unknown[w] += 1
     close()
-    prog.toolchange_extra = toolchange_extra or []
     prog.first_temp = next((p.temp for L in layers for p in L.paths), None)
 
     # layer Z / height when the slicer did not say
@@ -285,6 +298,8 @@ def parse(path_in):
         "z_hop": first_setting(settings, "z_hop", common(hops, 0.4)),
         "travel_f": first_setting(settings, "travel_speed", common(travels, 9000.0) / 60) * 60,
         "min_travel": first_setting(settings, "retraction_minimum_travel", 1.0),
+        "firmware": firmware or first_setting(settings, "use_firmware_retraction", 0) == 1,
+        "restart_extra": first_setting(settings, "retract_restart_extra", 0.0),     # extra primed after a retract
     }
     return prog
 

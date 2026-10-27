@@ -20,6 +20,14 @@ def _fmt(v):
     return f"{v:.3f}".rstrip("0").rstrip(".")
 
 
+def _block(blocks, tool):
+    """The slicer's swap block for tool; a tool the original never swapped (its block lives in the start G-code)
+    takes another tool's, as the slicer renders one template per filament."""
+    # ponytail: a tool never swapped in the original gets another filament's rendered block; render the
+    # filament_start/end_gcode templates if that proves wrong
+    return blocks.get(tool) or next(iter(blocks.values()), [])
+
+
 def _print_time(paths):
     return sum(math.dist(p.pts[i], p.pts[i + 1]) / (p.f[i] / 60) for p in paths for i in range(len(p.e)) if p.f[i] > 0)
 
@@ -41,9 +49,13 @@ class Writer:
         t = program.travel
         self.retract, self.retract_f, self.deretract_f = t["retract"], t["retract_f"], t["deretract_f"]
         self.z_hop, self.travel_f, self.min_travel = t["z_hop"], t["travel_f"], t["min_travel"]
+        self.firmware = t.get("firmware", False)      # G10 / G11: the printer's own retraction, no wipe
+        self.restart_extra = t.get("restart_extra", 0.0)
         setting = program.setting_list
         diam = setting("filament_diameter", default=[1.75])
         self.area = [math.pi * d * d / 4 for d in diam]
+        self.flow_ratio = setting("filament_flow_ratio", default=[1.0])
+        self.max_vol = setting("filament_max_volumetric_speed", default=[])     # mm3/s, per filament
         n = len(diam)
         flat = setting("flush_volumes_matrix")
         self.flush = [flat[i * n:(i + 1) * n] for i in range(n)] if flat and len(flat) == n * n else None
@@ -81,8 +93,10 @@ class Writer:
         except ValueError:
             self.before_wipe = 0.0
         self.role_wipe = program.settings.get("role_based_wipe_speed", "0").strip() == "1"   # Orca: wipe at print speed
-        # the slicer's tool change extras, minus the part fan (fans follow each path)
-        self.tc_extra = [ln for ln in program.toolchange_extra if not (ln.startswith("M106") and " P" not in ln)]
+        # the slicer's swap blocks per tool, minus the part fan (fans follow each path)
+        def own(blocks):
+            return {t: [ln for ln in b if not (ln.startswith("M106") and " P" not in ln)] for t, b in blocks.items()}
+        self.tc_end, self.tc_start = own(program.toolchange_end), own(program.toolchange_start)
         self.out = []
         self.pos = None
         self.z = None
@@ -121,8 +135,8 @@ class Writer:
         self.retracted = True
         pts = self.last_pts
         if not (self.wipe and self.wipe_dist > 0 and pts and len(pts) > 1 and self.pos is not None
-                and math.dist(self.pos, pts[-1]) < 1e-6):
-            self.emit(f"G1 E-{_fmt(self.retract)} F{_fmt(self.retract_f)}")
+                and math.dist(self.pos, pts[-1]) < 1e-6) or self.firmware:
+            self._plain_retract()
             return
         back = list(reversed(pts))
         route, left = [], self.wipe_dist
@@ -152,11 +166,17 @@ class Writer:
         self.pos, self.f = route[-1][0], wipe_f
         self.last_pts = None
 
+    def _plain_retract(self):
+        self.emit("G10" if self.firmware else f"G1 E-{_fmt(self.retract)} F{_fmt(self.retract_f)}")
+
     def deretract(self):
         if self.retracted:
-            self.emit(f"G1 E{_fmt(self.retract)} F{_fmt(self.deretract_f)}")
+            if self.firmware:
+                self.emit("G11")
+            else:
+                self.emit(f"G1 E{_fmt(self.retract + self.restart_extra)} F{_fmt(self.deretract_f)}")
+                self.f = self.deretract_f
             self.retracted = False
-            self.f = self.deretract_f
 
     def lift(self, z):
         if self.z is None or abs(z - self.z) > 1e-6:
@@ -171,14 +191,60 @@ class Writer:
         self.pos = (x, y)
         self.deretract()
 
-    def clear_z(self, x, y, z):
-        """Height a travel from here to (x, y) at z must clear: the tallest plastic within the nozzle's reach on the
-        way (its cone at the tallest printed point reaches no further; past clear_height the heater block could,
-        so then the tallest printed anywhere)."""
-        base = min(z, self.z) if self.z is not None else z
-        if self.pos is None or self.top <= base + 1e-6 or self.top - base > self.nozzle.clear_height:
+    def clear_z(self, x, y, z, frm=None, frm_z=None):
+        """Height a travel from frm (default: here) at frm_z to (x, y) at z must clear: the tallest plastic within the
+        nozzle's reach on the way (its cone at the tallest printed point reaches no further; past clear_height the
+        heater block could, so then the tallest printed anywhere)."""
+        frm = self.pos if frm is None else frm
+        frm_z = self.z if frm_z is None else frm_z
+        base = min(z, frm_z) if frm_z is not None else z
+        if frm is None or self.top <= base + 1e-6 or self.top - base > self.nozzle.clear_height:
             return self.top
-        return self.heights.max_near(self.pos, (x, y), self.nozzle.reach(self.top - base))
+        return self.heights.max_near(frm, (x, y), self.nozzle.reach(self.top - base))
+
+    def can_replay(self, p, q):
+        """The slicer's own way into p fits here: p follows q as in the slicer, nothing changed since q (tool,
+        position, Z, retraction), and no plastic taller than the route stands within the nozzle's reach of it."""
+        if not (p.lead and q is not None and q.tail and p.head and p.seq == q.seq + 1 and p.tool == q.tool
+                and p.tool in (None, self.tool) and not self.retracted and self.pos is not None
+                and self.z is not None and math.dist(self.pos, q.pts[-1]) < 1e-6 and abs(self.z - q.z) < 1e-6):
+            return False
+        pos, z = self.pos, self.z
+        for item in p.lead:
+            if item[0] != "move":
+                continue
+            _, x, y, nz, _, _ = item
+            if math.dist(pos, (x, y)) > 1e-9 and self.clear_z(x, y, nz, pos, z) > min(z, nz) + 1e-6:
+                return False
+            pos, z = (x, y), nz
+        return math.dist(pos, p.pts[0]) < 1e-6 and abs(z - p.z) < 1e-6
+
+    def replay(self, lead):
+        """Write the slicer's way into the next path as it wrote it (relative E)."""
+        balance = 0.0
+        for item in lead:
+            if item[0] == "line":
+                self.emit(item[1])
+                if item[1] in ("G10", "G11"):
+                    balance = -1.0 if item[1] == "G10" else 0.0
+                continue
+            _, x, y, z, de, f = item
+            words = []
+            if math.dist(self.pos, (x, y)) > 1e-9:
+                words += [f"X{_fmt(x)}", f"Y{_fmt(y)}"]
+            if abs(z - self.z) > 1e-9:
+                words.append(f"Z{_fmt(z)}")
+            if de:
+                words.append(f"E{de:.5f}")
+                balance += de
+            if f != self.f:
+                words.append(f"F{_fmt(f)}")
+            if words:
+                self.emit("G1 " + " ".join(words))
+            self.pos, self.z, self.f = (x, y), z, f
+        # the slicer rounds each E to 5 decimals: a retract undone leaves a few 1e-5 mm, a real one tenths
+        self.retracted = balance < -self.retract / 2
+        self.last_pts = None
 
     def travel(self, x, y, z, orca=None, high=None):
         """orca = (retract, hop): the slicer's own choice, when this is the travel it planned between the same two
@@ -226,16 +292,17 @@ class Writer:
         self.lift(max(self.top, self.z or 0.0) + max(self.z_hop, self.swap_lift))
         self.emit(f"; COLORSTACK TOOLCHANGE T{self.tool} -> T{tool}")
         self.set_temp(temp)
+        self.out.extend(_block(self.tc_end, self.tool))
         self.emit(self.p.tool_format.format(n=tool, purge=f"{self.purge_length(self.tool, tool):.3f}"))
-        self.out.extend(self.tc_extra)
+        self.out.extend(_block(self.tc_start, tool))
         self.tool = tool
         self.last = None
-        # the swap moves the head, may touch fans and machine state, and comes back primed
+        # the swap moves the head and may touch fans and machine state; the filament stays retracted until the next
+        # travel primes it, as the slicer unretracts after T
         self.pos = None
         self.z = None
         self.fans = {}
         self.state = {}
-        self.retracted = False
         self._state([(k, ln) for k, ln in state if k[0] in PA_WORDS])
 
     def _state(self, items):
@@ -277,6 +344,7 @@ class Writer:
             return p if keep == p.state else replace(p, state=keep)
         if p.tool == tool:
             return p
+        p = self._refill(p, tool)
         fans = self.p.fans.get((tool, layer.index, p.type))
         state = self.p.state_at(tool, layer.index, p.type)
         changes = {}
@@ -285,6 +353,22 @@ class Writer:
         if state is not None and state != p.state:
             changes["state"] = state
         return replace(p, **changes) if changes else p
+
+    def _refill(self, p, tool):
+        """p sliced for another filament, printed by tool: E for tool's flow ratio and filament area (Orca: E = volume
+        x flow ratio / area), slowed where that would pass tool's volumetric limit."""
+        def at(values, t):
+            return values[min(t, len(values) - 1)]
+        scale = (at(self.flow_ratio, tool) / at(self.flow_ratio, p.tool)) * (at(self.area, p.tool) / at(self.area, tool))
+        e = [v * scale for v in p.e]
+        f = list(p.f)
+        if self.max_vol:
+            cap = at(self.max_vol, tool) * 60 / at(self.area, tool)       # mm of filament per minute
+            for k, v in enumerate(e):
+                length = math.dist(p.pts[k], p.pts[k + 1])
+                if v > 0 and length > 0 and f[k] * v / length > cap:
+                    f[k] = cap * length / v
+        return p if e == p.e and f == p.f else replace(p, e=e, f=f)
 
     def path(self, p, layer):
         # the loaded filament's temperature for this layer (a handed-over piece is printed by another tool than it
@@ -300,7 +384,9 @@ class Writer:
         q = self.last
         z0 = p.z
         high = self.clear_z(x0, y0, z0)
-        if q is not None and high <= max(p.z, q.z) + 1e-6:
+        if self.can_replay(p, q):
+            self.replay(p.lead)
+        elif q is not None and high <= max(p.z, q.z) + 1e-6:
             # nothing taller on the way: travel as the slicer did into this path (its retract and hop). Where the
             # order changed: retract too if the travel is longer than the slicer's minimum, and no hop between two
             # tower pieces (the slicer never hops inside its tower)
@@ -455,7 +541,7 @@ class Writer:
         for k in sorted(self.waiting):     # left over only if a layer never settled (nothing below it printed)
             self._outside(self.waiting.pop(k))
         if not self.retracted:
-            self.emit(f"G1 E-{_fmt(self.retract)} F{_fmt(self.retract_f)}")
+            self._plain_retract()
         self.lift(self.top + self.z_hop)
         if self.p.abs_e:
             self.emit("G92 E0")

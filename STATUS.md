@@ -63,7 +63,7 @@ scope. Code, numbers and the research are parked in stash/nonplanar/ (NOTES.md).
   plain multicolour). Prime tower changed in 2.5: re-check the CP TOOLCHANGE / tower markers on a 2.5 file.
 
 ## Improvement sheet (2026-10-26, branch refine-compat; Rusti3D method: baseline, hypothesis, measure)
-RESUME HERE (2026-10-26 end of session). Branch refine-compat, not pushed. Done so far:
+RESUME HERE (2026-10-27). Branch refine-compat (pushed 2026-10-26 up to fix 1). Done so far:
 1. Modules reorganized (model/parse/geometry/plan/staggered/writer/config/summary); outputs byte-identical.
 2. Tools: `tools/regress.py LABEL [files|--variants]` + `--diff A B`; `verify --fidelity` (state per mm + travels).
    Test files (gitignored): samples/compat/ (user's 3MF, vegeta.gcode export), variants by
@@ -73,14 +73,32 @@ RESUME HERE (2026-10-26 end of session). Branch refine-compat, not pushed. Done 
    filament's PA right after each swap; handed-over pieces take the printing filament's state per feature; tower
    keeps the loaded PA. Measured (fidelity, PA on kept lines): filaments variant 255 m -> 0, adaptive_pa 310 m -> 0.
    Reference files: swaps/times unchanged; cube/support byte-identical, others differ only by M220 placement.
+4. FIX 2 done: swap blocks per tool (filament end G-code before T for the tool left, start G-code after T for the
+   tool entered; first swap of each in the original). swap_blocks variant (M118 markers): wrong blocks 167 -> 0.
+5. FIX 3 done: firmware retraction (G10/G11 are retracts in the parser, the writer writes G10/G11 in such files,
+   not G1 E): fw_retract variant G1 E retracts 564 -> 0, G10/G11 balanced. Found with it: after every swap the old
+   writer never primed back (Orca: G1 E-.8 before T, G1 E.8 after); measured 0.8 mm x swaps left retracted (Stitch
+   145.6 mm). Now the next travel unretracts: left retracted at the end = the original's 0.80.
+6. FIX 4 done: a handed-over piece takes the printing filament's flow ratio and filament area for its E, and is slowed
+   to that filament's max volumetric speed. filaments variant: handed lines at the wrong flow 166 mm -> 0, over the
+   printing filament's volumetric limit 70.5 mm -> 0.
+8. FIX 5 done: each path keeps the slicer's way into it (retract, wipe, lift, travel route, G10/G11); the writer replays
+   it when the path follows the same line as in the slicer, with the same tool and state, and no taller plastic is
+   within reach of the route; else it regenerates. Restart extra (retract_restart_extra) added to regenerated primes.
+   Same-order starts arriving by another route: travel variant 3025 -> 242, Stitch 867 -> 150; the rest lift over
+   taller stacked plastic. Cost: Anycubic cube 62.9 -> 64.1 min, Stitch 292.0 -> 293.1 (user: worth it).
+   Full report: work/regress/f5.check (tools/check.py f5 --collisions / f5-v): 0 collisions (Stitch: the 2 known
+   late-support spots), PA / swap blocks / E balance all as the original.
+   Left: per-filament retraction on regenerated travels (filaments variant: T0 0.5 mm, writer uses 0.8); E written
+   with 5 decimals gives ~1% flow error on tiny arc segments (scarf_arcs 948 mm, old) - write 6.
+7. tools/check.py LABEL [--collisions]: one row per output (kept-line state diffs, wrong swap blocks, E balance,
+   arrivals = how each extrusion start is reached vs the original, same-order starts only).
 Baselines: base (5 reference files), base-v (variants), work/baseline/vegeta.* (1176 -> 1130 swaps, 325 s: low gain,
 look at it with the island items below). Scarf variant: Orca CLI wrote no Z ramps even with seam_slope_type=all,
 conditional=0 - get a GUI-exported scarf file from the user.
-NEXT, in order (one fix, one measurement each): tool change block per tool (end G-code before T for the old filament,
-start G-code after T for the new; today the first swap's block is reused); firmware retraction (fw_retract variant:
-G10/G11 hoisted to layer start, plain G1 E retracts added 564 -> 1897); handed-over flow ratio/diameter + volumetric
-cap; replay the slicer's own travels where order is unchanged + per-tool retraction (travel variant); cooling
-metric (time between layers per spot vs original) then the cooling fix; fan speed-up timing (measure first).
+NEXT, in order (one fix, one measurement each): per-tool retraction for regenerated travels + E precision; printer
+type guards (refuse multi-nozzle and belt, keys from Orca's source); cooling metric (time between layers per spot vs original) then the cooling fix;
+fan speed-up timing (measure first).
 
 Compatibility / never worse quality (found in the audit, Orca 2.3.2 source + the user's files):
 - PA: Orca's per-filament SET_PRESSURE_ADVANCE after each swap (after `; CP TOOLCHANGE END`) is hoisted to the layer
@@ -96,6 +114,18 @@ Compatibility / never worse quality (found in the audit, Orca 2.3.2 source + the
 - Scarf seams (Z-changing extrusion) refused.
 - Measuring tool: `colorstack.verify --fidelity` (per extruded mm: tool, type, speed, flow, PA, fans, temperature,
   accel, M220/M221 against the original; extrusion starts per feature).
+Target (user, 2026-10-27): a native OrcaSlicer slicing mode (not a plugin), maybe an upstream PR; this Python
+version is the reference implementation and test bench. Follow the slicer's settings even at a small time cost.
+Printer types to check (user, 2026-10-27), each with an Orca CLI variant from a system printer profile:
+- single nozzle + filament changer (AMS / ACE / MMU): what we test today;
+- toolchangers (e.g. Prusa XL, Snapmaker U1): a tool change is seconds, no purge; parked tools are off the bed;
+- IDEX (e.g. Sovol SV04, Snapmaker J1) and copy/mirror modes: second carriage parked or printing in parallel;
+- multi-nozzle on one carriage (Bambu H2D, filament_map): REFUSE (user, 2026-10-27: too hard to account for the
+  idle nozzle riding next to the active one).
+- toolchangers / multiple toolheads: allow (little time saved, but no harm) once the file is handled correctly.
+- belt printers (new in recent Orca): layers are tilted in machine coordinates, the vertical-cone nozzle model does
+  not hold; refuse unless modelled. Detection keys to be read from Orca's source, not guessed.
+For each: what a swap costs (the gain), whether the nozzle model holds, and what the file's tool change looks like.
 Planning (from the user, 2026-10-26):
 - Island print order: colour 1 has islands with an overhang that colour 2 would have to print under (collision),
   same with colour 1 and 2 islands that both overhang. Optimise the order of these islands.

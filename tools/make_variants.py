@@ -1,5 +1,7 @@
 """The compatibility variants of the user's 3MF (spinner + TerrorCube; Vegeta left off)."""
+import json
 import sys
+import zipfile
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from variant import make, slice_3mf
@@ -8,6 +10,7 @@ HERE = Path(__file__).resolve().parent.parent / "samples" / "compat"   # the use
 SRC, OUT = HERE / "not_colliding.3mf", HERE / "v"
 DROP = {"majin_vegeta_bust.stl"}
 MODEL = "0.04,1,1000\n0.035,8,1000\n0.03,20,1000\n0.035,1,10000\n0.03,8,10000\n0.025,20,10000"  # >= 2 flows per accel
+START = json.loads(zipfile.ZipFile(SRC).read("Metadata/project_settings.config"))["filament_start_gcode"][0]
 VARIANTS = {
     # per-filament differences: PA, flow, volumetric limit, retraction, hop, outer wall slow-down, layer time, temperature
     "filaments": {"pressure_advance": ["0.02", "0.035", "0.05", "0.04"],
@@ -25,6 +28,9 @@ VARIANTS = {
                "wipe_before_external_loop": "1", "retract_restart_extra": ["0.1"], "role_based_wipe_speed": "1"},
     "scarf_arcs": {"seam_slope_type": "all", "seam_slope_conditional": "0", "enable_arc_fitting": "1"},
     "fw_retract": {"use_firmware_retraction": "1", "wipe": ["0"]},
+    # each filament's own start / end G-code, told apart by a marker line
+    "swap_blocks": {"filament_start_gcode": [START + f"\nM118 START T{i}" for i in range(4)],
+                    "filament_end_gcode": [f"M118 END T{i}\n" for i in range(4)]},
     "surface": {"ironing_type": "top", "fuzzy_skin": "external", "fan_kickstart": "0.3"},
 }
 

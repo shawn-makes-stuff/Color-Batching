@@ -26,7 +26,7 @@ FILES = [
 ]
 # the user's 3MF (spinner + TerrorCube) with features turned on: tools/make_variants.py
 VARIANTS = [f"samples/compat/v/{n}.gcode" for n in ("small", "filaments", "adaptive_pa", "travel", "scarf_arcs",
-                                                     "fw_retract", "surface")]
+                                                     "fw_retract", "surface", "swap_blocks")]
 SETTINGS = {"nozzle": {"contact": 0.2}}
 OUT = ROOT / "work" / "regress"
 
@@ -46,7 +46,9 @@ def process(label, files):
                       "sha": hashlib.sha256(dst.read_bytes()).hexdigest()[:16], "seconds": round(took, 1)}
         print(f"{src.stem[:40]:40} swaps {o['swaps']:>5} -> {p['swaps']:<5} time {o['total_s'] / 60:7.1f} -> "
               f"{p['total_s'] / 60:7.1f} min  {took:6.1f}s  {results[f]['sha']}", flush=True)
-    (OUT / f"{label}.json").write_text(json.dumps(results, indent=1))
+    record = OUT / f"{label}.json"          # a rerun of some files keeps the others' results
+    old = json.loads(record.read_text()) if record.exists() else {}
+    record.write_text(json.dumps({**old, **results}, indent=1))
 
 
 def diff(a, b):

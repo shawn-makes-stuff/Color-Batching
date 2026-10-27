@@ -186,6 +186,128 @@ def _travels(path):
     return out
 
 
+SWAP_SKIP = {"M73", "G92", "G17", "G10", "G11", "M400", "G4", "M104", "M109", "SET_PRINT_STATS_INFO", "M106", "M107",
+             "EXCLUDE_OBJECT_START", "EXCLUDE_OBJECT_END", "SET_VELOCITY_LIMIT", "M204",
+             "SET_PRESSURE_ADVANCE", "M900", "M572", "M220", "M221", "M205", "M566"}   # restated by ColorStack
+
+
+def _swap_blocks(path):
+    """Per swap (from tool, to tool, commands since the last extrusion before T, commands after T up to the next
+    extrusion); fans, temperatures and motion settings are left out (ColorStack writes those per path)."""
+    out, before, after, swap = [], [], [], None
+    tool = None
+    for i, kind, v in read(load(path)):
+        if kind == "tool":
+            if swap is not None:                 # T without extrusion in between: close the open swap
+                out.append((*swap, tuple(before), tuple(after)))
+                before = []
+            swap, after = (tool, v[0]), []
+            tool = v[0]
+        elif kind == "cmd" and v.split()[0].upper() not in SWAP_SKIP:
+            (after if swap else before).append(v)
+        elif kind == "move" and v.de > 0 and v.xy > 1e-9:
+            if swap is not None:
+                out.append((*swap, tuple(before), tuple(after)))
+                swap = None
+            before = []
+    return out
+
+
+def swap_fidelity(original, processed):
+    """Per tool: swaps whose end block (leaving it) or start block (entering it) is not one the original used for
+    that tool. Returns {tool: (swaps out, wrong end blocks, swaps in, wrong start blocks)}; a tool the original never
+    left or entered has nothing to compare against and counts every swap as wrong."""
+    ends, starts = {}, {}
+    for a, b, pre, post in _swap_blocks(original):
+        if a is None:
+            continue
+        ends.setdefault(a, set()).add(pre)
+        starts.setdefault(b, set()).add(post)
+    out = {}
+    for a, b, pre, post in _swap_blocks(processed):
+        if a is None:          # the start G-code's tool
+            continue
+        r = out.setdefault(a, [0, 0, 0, 0])
+        r[0] += 1
+        r[1] += pre not in ends.get(a, ())
+        r = out.setdefault(b, [0, 0, 0, 0])
+        r[2] += 1
+        r[3] += post not in starts.get(b, ())
+    return out
+
+
+def _arrivals(path):
+    """How the nozzle reached each extrusion start inside the layers: {(z, x, y) of the start: (retracted, hopped,
+    wiped, travel mm, highest Z on the way, (x, y) of the extrusion before)}."""
+    out = {}
+    live = False
+    retracted = hopped = wiped = False
+    route, top, prev_extruding = 0.0, 0.0, True
+    came_from = None                 # where the last extrusion ended
+    for i, kind, v in read(load(path)):
+        if kind == "layer" or kind == "comment" and v.startswith("; COLORSTACK"):
+            live = True
+        elif kind == "type" and v == "Custom" and live:
+            live = False
+        elif kind == "comment" and v.startswith(";WIPE_START"):
+            wiped = True
+        elif kind == "cmd" and v.split()[0].upper() == "G10":
+            retracted = True
+        elif kind == "move":
+            if v.de > 0 and v.xy > 1e-9:
+                if not prev_extruding and live:
+                    key = (round(v.z0, 2), round(v.x0 / 0.1), round(v.y0 / 0.1))
+                    out.setdefault(key, (retracted, hopped, wiped, round(route, 1), round(top, 2), came_from))
+                prev_extruding = True
+                came_from = (round(v.x1 / 0.1), round(v.y1 / 0.1))
+                retracted = hopped = wiped = False
+                route, top = 0.0, 0.0
+                continue
+            if v.xy < 1e-9 and v.de == 0 and abs(v.z1 - v.z0) < 1e-9:
+                continue                     # feedrate only
+            if prev_extruding:
+                top = v.z0
+            prev_extruding = False
+            retracted |= v.de < 0
+            hopped |= v.z1 > v.z0 + 1e-6
+            route += v.xy if v.de == 0 else 0.0
+            top = max(top, v.z1)
+    return out
+
+
+def arrival_fidelity(original, processed):
+    """Extrusion starts of the original found in the processed file, and how many arrive differently: retract,
+    hop or wipe changed, or a travel route more than 10% / 1 mm longer or shorter (the slicer's route lost). Only
+    starts that come from the same extrusion as in the original count; the rest are reordered."""
+    a, b = _arrivals(original), _arrivals(processed)
+    counts = dict.fromkeys(("matched", "reordered", "retract", "hop", "wipe", "route"), 0)
+    for key, (ra, ha, wa, la, _, fa) in a.items():
+        if key not in b:
+            continue
+        rb, hb, wb, lb, _, fb = b[key]
+        if fa != fb:
+            counts["reordered"] += 1
+            continue
+        counts["matched"] += 1
+        counts["retract"] += ra != rb
+        counts["hop"] += ha != hb
+        counts["wipe"] += wa != wb
+        counts["route"] += abs(la - lb) > max(1.0, 0.1 * la)
+    return counts
+
+
+def e_balance(path):
+    """Filament laid down minus net extruder travel: what is left retracted at the end (a retract never undone
+    adds to it)."""
+    net = laid = 0.0
+    for i, kind, v in read(load(path)):
+        if kind == "move":
+            net += v.de
+            if v.de > 0 and v.xy > 1e-9:
+                laid += v.de
+    return laid - net
+
+
 FIELDS = ("tool", "type", "speed", "flow", "PA", "fan", "other fans", "temperature", "accel", "speed %", "flow %")
 
 
@@ -194,6 +316,20 @@ def fidelity(original, processed, step=0.5):
     into lines that kept their tool and lines handed to another tool; and extrusion starts per feature type."""
     a, starts_a = _states(original, step)
     b, starts_b = _states(processed, step)
+    # a line handed to another filament should carry that filament's flow (Orca: E = volume x flow ratio / area) and
+    # stay within its volumetric limit
+    cfg = {m.group(1): m.group(2) for m in (re.match(r"^; (\w+) = (.*)$", ln) for ln in load(original)[-3000:]) if m}
+
+    def per_tool(key, default):
+        try:
+            return [float(v) for v in cfg[key].split(",")]
+        except (KeyError, ValueError):
+            return [default]
+    ratio, diam = per_tool("filament_flow_ratio", 1.0), per_tool("filament_diameter", 1.75)
+    max_vol = per_tool("filament_max_volumetric_speed", math.inf)
+
+    def pick(values, tool):
+        return values[min(tool or 0, len(values) - 1)]
     near = [(0, 0)] + [(dx, dy) for dx in (-1, 0, 1) for dy in (-1, 0, 1) if dx or dy]
     diffs = {}          # (field, kept | handed, type, + | - | "") -> mm
     examples = {}       # same key -> ((z, x, y), original value, processed value), the first one found
@@ -205,15 +341,28 @@ def fidelity(original, processed, step=0.5):
             continue
         matched += 1
         group = "kept" if sa[0] == sb[0] else "handed"
+        want = list(sa)
+        if group == "handed":
+            want[3] = sa[3] * pick(ratio, sb[0]) / pick(ratio, sa[0]) * (pick(diam, sa[0]) / pick(diam, sb[0])) ** 2
+        vol = sb[3] * math.pi * pick(diam, sb[0]) ** 2 / 4 * sb[2] / 60 * sb[9] / 100
+        vol_a = sa[3] * math.pi * pick(diam, sa[0]) ** 2 / 4 * sa[2] / 60 * sa[9] / 100
+        # over the printing filament's limit, and more than the original printed there (Orca limits by line
+        # width x height, which can sit a little above the E-based figure)
+        limit = pick(max_vol, sb[0])
+        if vol > limit * 1.03 if group == "handed" else vol > limit * 1.01 and vol > vol_a * 1.01:
+            key = ("over max flow", group, sa[1], "+")
+            diffs[key] = diffs.get(key, 0.0) + step
+            examples.setdefault(key, ((z, x * 0.1, y * 0.1), round(pick(max_vol, sb[0]), 2), round(vol, 2)))
         for k in range(1, len(FIELDS)):
-            same = (abs(sa[k] - sb[k]) <= 0.01 * max(abs(sa[k]), 1e-9) if isinstance(sa[k], float) and
-                    isinstance(sb[k], float) else sa[k] == sb[k])
+            sa_k = want[k]
+            same = (abs(sa_k - sb[k]) <= 0.01 * max(abs(sa_k), 1e-9) if isinstance(sa_k, float) and
+                    isinstance(sb[k], float) else sa_k == sb[k])
             if not same:
-                way = ("+" if sb[k] > sa[k] else "-") if isinstance(sa[k], (int, float)) and isinstance(
+                way = ("+" if sb[k] > sa_k else "-") if isinstance(sa_k, (int, float)) and isinstance(
                     sb[k], (int, float)) else ""
                 key = (FIELDS[k], group, sa[1], way)
                 diffs[key] = diffs.get(key, 0.0) + step
-                examples.setdefault(key, ((z, x * 0.1, y * 0.1), sa[k], sb[k]))
+                examples.setdefault(key, ((z, x * 0.1, y * 0.1), sa_k, sb[k]))
     return {"matched_mm": matched * step, "missing_mm": missing * step, "diffs": diffs, "examples": examples,
             "starts": {t: (starts_a.get(t, 0), starts_b.get(t, 0)) for t in starts_a.keys() | starts_b.keys()},
             "travels": (_travels(original), _travels(processed))}
@@ -331,6 +480,14 @@ def main():
             print(f"  {typ:28} {x:6} -> {y:6}")
         ta, tb = r["travels"]
         print("travels: " + ", ".join(f"{k} {ta[k]:.0f} -> {tb[k]:.0f}" for k in ta))
+        c = arrival_fidelity(a.original, a.processed)
+        print(f"arrivals: {c['matched']} extrusion starts in the slicer's order ({c['reordered']} reordered); "
+              f"arriving differently: retract {c['retract']}, "
+              f"hop {c['hop']}, wipe {c['wipe']}, route {c['route']}")
+        for t, (n_out, bad_end, n_in, bad_start) in sorted(swap_fidelity(a.original, a.processed).items(),
+                                                           key=lambda kv: str(kv[0])):
+            print(f"swaps T{t}: leaving {n_out} ({bad_end} with an end block the original never used), "
+                  f"entering {n_in} ({bad_start} with a start block the original never used)")
         return
     nozzle = load_config(a.config)["nozzle"]
     if a.contact is not None:

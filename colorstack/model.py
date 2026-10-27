@@ -35,6 +35,8 @@ class Path:
     vlim: tuple = ()          # other SET_VELOCITY_LIMIT parameters in force, ((name, value), ...)
     height: float | None = None   # line height the slicer wrote for it (;HEIGHT: after ;TYPE:), None = the layer's
     state: tuple = ()         # machine state commands in force (PA, speed / flow factor, jerk): ((key, line), ...)
+    lead: tuple = ()          # the slicer's way into the path since the extrusion before it: ("move", x, y, z, de, f)
+                              # (retracts, wipes, lifts, travel route) and ("line", text) (G10 / G11, wipe markers)
 
     @property
     def visible(self):
@@ -64,7 +66,6 @@ class Program:
     postamble: list
     layers: list
     first_tool: int
-    toolchange_extra: list    # what the slicer emits around a tool change (filament start/end G-code)
     header: list
     tool_format: str = "T{n}"     # the file's own tool change line, {purge} for PURGE_LENGTH
     abs_e: bool = False           # start G-code leaves M82
@@ -76,6 +77,10 @@ class Program:
     states: dict = field(default_factory=dict)   # (tool, type) -> [(layer index, state)] the slicer printed it under
     travel: dict = field(default_factory=dict)   # retract, retract_f, deretract_f, z_hop, travel_f, min_travel
     unknown: Counter = field(default_factory=Counter)
+    # what the slicer writes in a swap: tool -> lines before T when leaving it (filament end G-code), lines after T
+    # when entering it (filament start G-code); the first swap of each
+    toolchange_end: dict = field(default_factory=dict)
+    toolchange_start: dict = field(default_factory=dict)
 
     def temp_at(self, tool, index):
         """Nozzle temperature for tool printing layer index: what the slicer printed that tool at there (a layer
