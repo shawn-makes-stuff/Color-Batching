@@ -111,4 +111,5 @@ def plan_staggered(program, nozzle, opts, progress=None):
         ceded, vis = band.ceded_by.get(u, (0.0, 0.0))
         bands.append(Band(layers[start:end], [u], work, ceded, vis))
         loaded, last = u[0], u
+        samples.clear_answers()
     return bands, (tower.kept, tower.replaced)

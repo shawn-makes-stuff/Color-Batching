@@ -132,6 +132,7 @@ class Samples:
         self.cache = {}
         self.trees = {}
         self.ramps = {}
+        self.answers = {}      # (tree, samples, bound) -> distances, for one band (clear_answers)
 
     def of(self, p):
         hit = self.cache.get(id(p))
@@ -172,6 +173,20 @@ class Samples:
             hit = (tuple(paths), (cKDTree(np.vstack(pts)), drop) if pts else None)
             self.ramps[key] = hit
         return hit[1]
+
+
+    def nearest(self, tree, p, bound):
+        """_nearest for path p's samples, the answer kept until clear_answers: a band is planned again for every
+        colour order and every layer it grows by, asking the same questions (61% of the work on Stitch)."""
+        key = (id(tree), id(p), bound)
+        hit = self.answers.get(key)
+        if hit is None:
+            hit = _nearest(tree, self.of(p)[0], bound)
+            self.answers[key] = hit
+        return hit
+
+    def clear_answers(self):
+        self.answers.clear()
 
 
 def _nearest(tree, pts, bound):

@@ -93,14 +93,14 @@ def plan_band(layers, order, samples, nozzle, opts, work=None, starts=None):
                         # layer Z, not path Z: path Z carries Orca's Z offset
                         dz = nozzle.over(L.z - layers[i].z)
                         if dz > 1e-6:
-                            d = _nearest(trees_T[i], pts, max_need + p.width)
+                            d = samples.nearest(trees_T[i], p, max_need + p.width)
                             margin = np.minimum(margin, d - nozzle.reach(dz) - margin_mm)
                     # T's scarf seam ramps: its nozzle runs up to `drop` below that layer there (on this layer too)
                     ramp = ramps_T[i] if i < j else own_ramp
                     if ramp is not None:
                         dz = nozzle.over(L.z - layers[i].z + ramp[1])
                         if dz > 1e-6:
-                            d = _nearest(ramp[0], pts, max_need + ramp[1] + p.width)
+                            d = samples.nearest(ramp[0], p, max_need + ramp[1] + p.width)
                             margin = np.minimum(margin, d - nozzle.reach(dz) - margin_mm)
                 mask = margin < p.width / 2
                 if owner == DONE:
@@ -111,8 +111,8 @@ def plan_band(layers, order, samples, nozzle, opts, work=None, starts=None):
                     continue
                 if j > 0:
                     # resting only on T's previous layer (printed later): hand it to T, or it prints in mid-air
-                    on_T = _nearest(trees_T[j - 1], pts, p.width) < p.width / 2
-                    on_E = _nearest(trees_E[j - 1], pts, p.width) < p.width / 2
+                    on_T = samples.nearest(trees_T[j - 1], p, p.width) < p.width / 2
+                    on_E = samples.nearest(trees_E[j - 1], p, p.width) < p.width / 2
                     mask |= on_T & ~on_E
                 if mask.any() and opts.min_piece > 0:
                     mask = absorb_short_runs(mask, opts.min_piece / samples.step)
@@ -203,6 +203,7 @@ def plan(program, nozzle, opts, progress=None):
         bands.append(best)
         loaded = best.order[-1][0]
         i += len(best.layers)
+        samples.clear_answers()
     return bands
 
 
