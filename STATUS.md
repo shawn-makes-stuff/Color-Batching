@@ -125,7 +125,8 @@ conditional=0 - get a GUI-exported scarf file from the user.
    support, 13053 Z-changing extrusion segments): Path.zs (Z per point, z = top, z0 / z1); spiral_mode refused
    explicitly; planner: per layer a KD tree of the later colour's ramp samples, checked with the ramp's deepest drop
    (on the ramp's own layer too); split() cuts zs; writer writes Z on ramp segments, travels to the ramp start.
-   Result: 226 -> 187 swaps, 297 -> 256 min, 0 collisions, ramps kept (13068 segments). Planned as if ramps were
+   Result (free support on): 226 -> 187 swaps, 297 -> 256 min, 0 collisions, ramps kept (13068 segments). With the
+   default (free support off): 226 -> 217, 0 collisions - its Default grid support blocks the bands. Planned as if ramps were
    flat: 117 swaps but 4248 collisions (the rule is needed). Ramp samples grouped by depth: no fewer swaps and 1
    collision, reverted. Reference files byte-identical.
 NEXT: Vegeta's 20 extra late-support with free support (find the spots: verify.check on work/regress/s1); speed
