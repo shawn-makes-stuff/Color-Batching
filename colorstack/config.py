@@ -18,7 +18,7 @@ DEFAULTS = {
         "min_piece": 2.0,
         "per_object": True,        # plan with and without, keep the faster
         "staggered": False,        # also plan each colour on its own schedule, keep the faster
-        "free_support": False,     # support the slicer printed with any filament may change filament (STATUS 12)
+        "free_support": True,      # support the slicer printed with any filament may change filament (STATUS 12)
         "resolution": 0.1,
     },
     "cooling": {

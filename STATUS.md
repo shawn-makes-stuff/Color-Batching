@@ -120,7 +120,10 @@ conditional=0 - get a GUI-exported scarf file from the user.
    What stops Vegeta's bands now: visible outer walls only (762 resting on the later colour, 246 nozzle hits);
    ceiling with every resting case solved 570 swaps, but at 2-layer bands a split colour costs as many swaps.
    s0 (same code, support kept): 1130 swaps, 4 late-support; s1 (free): 888, 24. So free support adds 20 spots:
-   shipped as stack.free_support, OFF by default, until found (scarf_grid has Default support too: 0 late-support).
+   shipped as stack.free_support. The extra spots are not support: outer walls at a seam between two colours,
+   resting half on each, printed before the lower colour (the known seam-straddle case, see Results); longer bands
+   make it more frequent (4 -> 24 samples of 0.2 mm, ~5 mm in a 29 h print, for 242 fewer swaps). User
+   2026-10-27: setting, default ON.
 14. Scarf seams (user's GUI export samples/compat/scarf_grid.gcode: seam_slope_type all, conditional off, grid
    support, 13053 Z-changing extrusion segments): Path.zs (Z per point, z = top, z0 / z1); spiral_mode refused
    explicitly; planner: per layer a KD tree of the later colour's ramp samples, checked with the ramp's deepest drop
@@ -129,6 +132,7 @@ conditional=0 - get a GUI-exported scarf file from the user.
    default (free support off): 226 -> 217, 0 collisions - its Default grid support blocks the bands. Planned as if ramps were
    flat: 117 swaps but 4248 collisions (the rule is needed). Ramp samples grouped by depth: no fewer swaps and 1
    collision, reverted. Reference files byte-identical.
+Priorities (user, 2026-10-27): Marlin low; Bambu AMS swaps later (large user base, must do), then Prusa MMU.
 NEXT: Vegeta's 20 extra late-support with free support (find the spots: verify.check on work/regress/s1); speed
 pass on large files (planning now the largest stage); island order needs a rethink (stash/islands).
 
