@@ -1,0 +1,18 @@
+cmake_minimum_required(VERSION 3.20)
+project(ColorBatching CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+if(MSVC)
+  # exact IEEE arithmetic (no contraction into FMA, no reassociation): results must match the Python reference
+  add_compile_options(/fp:precise /W4 /utf-8)
+  add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
+else()
+  add_compile_options(-ffp-contract=off -Wall -Wextra)
+endif()
+
+add_library(cbcore core/reader.cpp)
+target_include_directories(cbcore PUBLIC core)
+
+add_executable(dump_events tools/dump_events.cpp)
+target_link_libraries(dump_events cbcore)
