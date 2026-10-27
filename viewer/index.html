@@ -1416,7 +1416,9 @@ async function initApp() {
     $("processBtn").disabled = false; $("processBtn").classList.remove("busy"); $("processLabel").textContent = "Optimize file";
     $("panelHint").textContent = $("exportBtn").disabled ? "Set the options, then Optimize file" : "Done: export from the top bar";
   };
-  if (st.input && !q.get("a")) await setInput(st.input);
+  // a refresh starts empty (heavy files are slow to load); only a file named in the URL is loaded (?input=, the
+  // command line's preload)
+  if (q.get("input") && !q.get("a")) await setInput(q.get("input"));
 }
 
 // drag and drop: two files = original + processed; one file = replaces the side it is dropped on (app: new input)

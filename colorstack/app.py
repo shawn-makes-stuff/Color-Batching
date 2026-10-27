@@ -10,7 +10,7 @@ import urllib.request
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from .config import DEFAULTS, HELP, apply, load_config, save_config
 from .pipeline import run
@@ -169,6 +169,8 @@ def main():
         state["input"] = name
     srv = ThreadingHTTPServer(("127.0.0.1", a.port), Handler)
     url = f"http://127.0.0.1:{a.port}/"
+    if a.file:              # the page loads only a file its URL names, so a refresh starts empty
+        url += "?input=" + quote(state["input"])
     if not a.no_browser:
         threading.Timer(0.5, webbrowser.open, [url]).start()
     print(f"ColorStack app at {url}  (Ctrl+C to stop)")
