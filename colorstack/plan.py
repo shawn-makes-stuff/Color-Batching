@@ -19,6 +19,7 @@ class Options:
     resolution: float = 0.1
     min_piece: float = 2.0
     per_object: bool = True
+    free_support: frozenset = frozenset()   # (object, type) of support the slicer gave no filament (Program)
 
 
 @dataclass
@@ -69,12 +70,16 @@ def plan_band(layers, order, samples, nozzle, opts, work=None, starts=None):
         start = starts.get(T, 0)
         trees_T = []        # per band layer, after ceding
         trees_E = []
+        ramps_T = []        # per band layer, T's scarf seam ramps (Samples.ramp)
         for j, L in enumerate(layers):
             if j < start:   # T printed this layer already
                 trees_T.append(None)
                 trees_E.append(None)
+                ramps_T.append(None)
                 continue
-            own_tree = samples.tree([p for o, p in work[j] if o == T])
+            own = [p for o, p in work[j] if o == T]
+            own_tree = samples.tree(own)
+            own_ramp = samples.ramp(own)
             new_work, new_origin = [], []
             for (owner, p), first_owner in zip(work[j], origin[j]):
                 if owner not in earlier:
@@ -83,15 +88,20 @@ def plan_band(layers, order, samples, nozzle, opts, work=None, starts=None):
                     continue
                 pts, seg, ts = samples.of(p)
                 margin = np.full(len(pts), np.inf)
-                for i in range(j):
-                    if trees_T[i] is None:
-                        continue
-                    # layer Z, not path Z: path Z carries Orca's Z offset
-                    dz = nozzle.over(L.z - layers[i].z)
-                    if dz <= 1e-6:
-                        continue
-                    d = _nearest(trees_T[i], pts, max_need + p.width)
-                    margin = np.minimum(margin, d - nozzle.reach(dz) - margin_mm)
+                for i in range(j + 1):
+                    if i < j and trees_T[i] is not None:
+                        # layer Z, not path Z: path Z carries Orca's Z offset
+                        dz = nozzle.over(L.z - layers[i].z)
+                        if dz > 1e-6:
+                            d = _nearest(trees_T[i], pts, max_need + p.width)
+                            margin = np.minimum(margin, d - nozzle.reach(dz) - margin_mm)
+                    # T's scarf seam ramps: its nozzle runs up to `drop` below that layer there (on this layer too)
+                    ramp = ramps_T[i] if i < j else own_ramp
+                    if ramp is not None:
+                        dz = nozzle.over(L.z - layers[i].z + ramp[1])
+                        if dz > 1e-6:
+                            d = _nearest(ramp[0], pts, max_need + ramp[1] + p.width)
+                            margin = np.minimum(margin, d - nozzle.reach(dz) - margin_mm)
                 mask = margin < p.width / 2
                 if owner == DONE:
                     if mask.any():
@@ -110,8 +120,8 @@ def plan_band(layers, order, samples, nozzle, opts, work=None, starts=None):
                     new_work.append((owner, p))
                     new_origin.append(first_owner)
                     continue
-                if p.type.startswith("Support") and owner[0] != T[0]:
-                    return None     # support keeps the slicer's filament (interface material is chosen on purpose)
+                if p.type.startswith("Support") and owner[0] != T[0] and (p.obj, p.type) not in opts.free_support:
+                    return None     # support keeps the filament chosen for it (interface material is chosen on purpose)
                 vis =np.full(len(pts), p.visible)
                 if p.visible:
                     vis &= ~interface_mask(p, pts, seg, layer_trees[j])
@@ -132,6 +142,7 @@ def plan_band(layers, order, samples, nozzle, opts, work=None, starts=None):
             work[j], origin[j] = new_work, new_origin
             trees_T.append(samples.tree([p for o, p in work[j] if o == T]))
             trees_E.append(samples.tree([p for o, p in work[j] if o in earlier]))
+            ramps_T.append(samples.ramp([p for o, p in work[j] if o == T]))
     return Band(layers, list(order), work, ceded, vis_ceded, origin, ceded_by)
 
 

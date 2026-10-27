@@ -73,6 +73,7 @@ def parse(path_in):
     fans = {}
     state = {}         # key -> line, see _state_key
     lead = []          # moves and lines since the last extrusion, for the next path
+    zs = []            # Z per point of the open path
     path = None
     seq = 0
     retracted = hopped = False
@@ -90,6 +91,8 @@ def parse(path_in):
     def close():
         nonlocal path, seq, retracted, hopped
         if path is not None and path.e:
+            if max(zs) - min(zs) > 1e-6:      # a scarf seam ramp: Z per point, z the top
+                path.zs, path.z = tuple(zs), max(zs)
             cur.paths.append(path)
             seq += 1
             retracted = hopped = False
@@ -111,20 +114,20 @@ def parse(path_in):
                 new_layer()
             if m.xy < 1e-9 and m.de == 0 and abs(m.z1 - m.z0) < 1e-9:
                 continue       # feedrate-only line
-            if m.de > 0 and m.xy > 1e-9 and abs(m.z1 - m.z0) >= 1e-9:
-                raise ValueError(f"line {i + 1} extrudes while changing Z (spiral vase?): not supported")
-            if m.de > 0 and m.xy > 1e-9 and abs(m.z1 - m.z0) < 1e-9:
+            if m.de > 0 and m.xy > 1e-9:
                 if path is None:
                     tl = None if typ in NEUTRAL_TYPES else tool
                     path = Path(tl, typ, width, m.z1, [(m.x0, m.y0)], [], [], accel, dict(fans), obj,
                                 seq, retracted, hopped, scv=scv, temp=temp, vlim=vlim, height=height,
                                 state=tuple(sorted(state.items())), lead=tuple(lead))
                     lead = []
+                    zs = [m.z0]
                     if typ in NEUTRAL_TYPES:
                         path.tower, path.block = tower_sec, block if tower_sec == "wipe" else -1
                 path.pts.append((m.x1, m.y1))
                 path.e.append(m.de)
                 path.f.append(m.f)
+                zs.append(m.z1)
             else:
                 close()        # travel, Z move, retract or deretract
                 lead.append(("move", m.x1, m.y1, m.z1, m.de, m.f))
@@ -266,6 +269,12 @@ def parse(path_in):
     for k, L in enumerate(layers):
         L.index = k
     prog.layers = layers
+    support_tools = {}
+    for L in layers:
+        for p in L.paths:
+            if p.tool is not None and p.type.startswith("Support"):
+                support_tools.setdefault((p.obj, p.type), set()).add(p.tool)
+    prog.free_support = frozenset(k for k, tools in support_tools.items() if len(tools) > 1)
     for L in layers:
         for p in L.paths:
             if p.tool is not None:
@@ -318,6 +327,8 @@ def _check_printer(prog):
                          "changer only")
     if first_setting(prog.settings, "belt_printer", 0) == 1:
         raise ValueError("belt printers are not supported (tilted layers)")
+    if first_setting(prog.settings, "spiral_mode", 0) == 1:
+        raise ValueError("spiral vase mode is not supported")
 
 
 def _state_key(word, line):

@@ -14,6 +14,7 @@ run with `python -m colorstack in.gcode --set section.key=value`.
 | `stack.min_piece` | 2.0 mm | Shorter leftovers between handed-over pieces are handed over too. |
 | `stack.per_object` | on | Also plan each object on its own; the faster plan is kept. |
 | `stack.staggered` | off | Also plan each colour on its own schedule (fewer swaps where 3+ colours share layers); the faster plan is kept. Slower processing. |
+| `stack.free_support` | off | Support the slicer printed with whatever filament was loaded (support filament "Default") may be printed by another filament, so it stacks. Support with a chosen filament keeps it. |
 | `stack.resolution` | 0.1 mm | Sampling step for the collision planning. |
 | `cooling.respect_min_layer_time` | on | Slow regions printed straight on top of themselves down to the minimum layer time, as the slicer does (not below its minimum speed). Outer walls always keep their sliced speed. |
 | `cooling.stacked_fan` | on | Raise the part fan on regions printed straight on top of themselves, by the slicer's own fan rule. |

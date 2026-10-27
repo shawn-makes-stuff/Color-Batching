@@ -110,7 +110,26 @@ RESUME HERE (2026-10-27). Branch refine-compat (pushed 2026-10-26 up to fix 1). 
 Baselines: base (5 reference files), base-v (variants), work/baseline/vegeta.* (1176 -> 1130 swaps, 325 s: low gain,
 look at it with the island items below). Scarf variant: Orca CLI wrote no Z ramps even with seam_slope_type=all,
 conditional=0 - get a GUI-exported scarf file from the user.
-NEXT: speed plan below (densify done, timing pending); then the island items; Vegeta's low gain.
+12. Vegeta's low gain (1176 -> 1130): 742 band rejections were support refused to another filament. Vegeta's support
+   is Orca "Default" (support_filament 0 = "current filament is used", PrintConfig tooltip): printed by all 4
+   filaments. Program.free_support = (object, type) of support the slicer printed with more than one filament; only
+   that may be handed over (support always printed with one filament keeps it: Support test, TerrorCube).
+   Vegeta 1176 -> 888 swaps (was 1130), 29h46 -> 24h40. Reference files byte-identical. Quality report: clean except
+   24 late-support spots (work/regress/s1) - being compared with the same code without free support (s0).
+13. Island order: tried, parked in stash/islands/ (NOTES.md, islands.patch): cube1h43 41 -> 51 swaps, 12x slower.
+   What stops Vegeta's bands now: visible outer walls only (762 resting on the later colour, 246 nozzle hits);
+   ceiling with every resting case solved 570 swaps, but at 2-layer bands a split colour costs as many swaps.
+   s0 (same code, support kept): 1130 swaps, 4 late-support; s1 (free): 888, 24. So free support adds 20 spots:
+   shipped as stack.free_support, OFF by default, until found (scarf_grid has Default support too: 0 late-support).
+14. Scarf seams (user's GUI export samples/compat/scarf_grid.gcode: seam_slope_type all, conditional off, grid
+   support, 13053 Z-changing extrusion segments): Path.zs (Z per point, z = top, z0 / z1); spiral_mode refused
+   explicitly; planner: per layer a KD tree of the later colour's ramp samples, checked with the ramp's deepest drop
+   (on the ramp's own layer too); split() cuts zs; writer writes Z on ramp segments, travels to the ramp start.
+   Result: 226 -> 187 swaps, 297 -> 256 min, 0 collisions, ramps kept (13068 segments). Planned as if ramps were
+   flat: 117 swaps but 4248 collisions (the rule is needed). Ramp samples grouped by depth: no fewer swaps and 1
+   collision, reverted. Reference files byte-identical.
+NEXT: Vegeta's 20 extra late-support with free support (find the spots: verify.check on work/regress/s1); speed
+pass on large files (planning now the largest stage); island order needs a rethink (stash/islands).
 
 Compatibility / never worse quality (found in the audit, Orca 2.3.2 source + the user's files):
 - PA: Orca's per-filament SET_PRESSURE_ADVANCE after each swap (after `; CP TOOLCHANGE END`) is hoisted to the layer

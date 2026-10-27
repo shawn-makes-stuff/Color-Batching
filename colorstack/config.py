@@ -18,6 +18,7 @@ DEFAULTS = {
         "min_piece": 2.0,
         "per_object": True,        # plan with and without, keep the faster
         "staggered": False,        # also plan each colour on its own schedule, keep the faster
+        "free_support": False,     # support the slicer printed with any filament may change filament (STATUS 12)
         "resolution": 0.1,
     },
     "cooling": {
@@ -88,6 +89,9 @@ HELP = {
                          "that is faster (both ways are planned and the faster kept)."),
     "stack.staggered": ("Staggered colours", "", "Each colour on its own schedule: fewer swaps where 3+ colours "
                         "share layers. Both ways are planned, the faster kept. Slower processing on those files."),
+    "stack.free_support": ("Free support filament", "", "Support the slicer printed with whatever filament was loaded "
+                           "(support filament 'Default') may be printed by another filament, so it stacks. "
+                           "Support with a chosen filament keeps it."),
     "stack.resolution": ("Resolution", "mm", "Sampling step for the collision planning."),
     "cooling.respect_min_layer_time": ("Respect minimum layer time", "", "Slow regions printed again straight on top "
                                        "of themselves down to the minimum layer time, as the slicer does. Outer walls "

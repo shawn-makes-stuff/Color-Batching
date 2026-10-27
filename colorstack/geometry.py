@@ -59,14 +59,19 @@ def densify(p, step):
 
 
 def split(p, seg, ts, mask):
-    """Split path p where the per-sample mask changes. Returns [(flag, Path)]."""
+    """Split path p where the per-sample mask changes. Returns [(flag, Path)]; a scarf ramp's Z per point is cut
+    with it (a piece that ends up flat has none)."""
     out = []
-    cur_flag, cur_pts, cur_e, cur_f = None, None, None, None
+    cur_flag, cur_pts, cur_e, cur_f, cur_z = None, None, None, None, None
 
     def flush():
         if cur_pts is not None and len(cur_pts) > 1:
+            z = {}
+            if cur_z is not None:
+                z = ({"zs": tuple(cur_z), "z": max(cur_z)} if max(cur_z) - min(cur_z) > 1e-6
+                     else {"zs": None, "z": cur_z[0]})
             out.append((cur_flag, replace(p, pts=cur_pts, e=cur_e, f=cur_f, head=p.head and not out,
-                                          tail=False)))
+                                          tail=False, **z)))
 
     for i in range(len(p.e)):
         sel = seg == i
@@ -80,6 +85,7 @@ def split(p, seg, ts, mask):
                 cf.append(flags[k])
         cuts.append(1.0)
         (x0, y0), (x1, y1) = p.pts[i], p.pts[i + 1]
+        z0, z1 = (p.zs[i], p.zs[i + 1]) if p.zs else (None, None)
         for k in range(len(cf)):
             ta, tb = cuts[k], cuts[k + 1]
             a = (x0 + (x1 - x0) * ta, y0 + (y1 - y0) * ta)
@@ -87,7 +93,10 @@ def split(p, seg, ts, mask):
             if cf[k] != cur_flag:
                 flush()
                 cur_flag, cur_pts, cur_e, cur_f = cf[k], [a], [], []
+                cur_z = [z0 + (z1 - z0) * ta] if p.zs else None
             cur_pts.append(b)
+            if p.zs:
+                cur_z.append(z0 + (z1 - z0) * tb)
             cur_e.append(p.e[i] * (tb - ta))
             cur_f.append(p.f[i])
     flush()
@@ -122,6 +131,7 @@ class Samples:
         self.step = step
         self.cache = {}
         self.trees = {}
+        self.ramps = {}
 
     def of(self, p):
         hit = self.cache.get(id(p))
@@ -139,6 +149,28 @@ class Samples:
             pts = [self.of(p)[0] for p in paths]
             hit = (tuple(paths), cKDTree(np.vstack(pts)) if pts else None)
             self.trees[key] = hit
+        return hit[1]
+
+
+    def ramp(self, paths):
+        """Where the paths' nozzle runs below their top (scarf seam ramps): (KD tree of those samples, the deepest
+        drop below the path's top), or None. Cached like tree. (Grouping the samples by depth gave no fewer swaps.)"""
+        key = tuple(map(id, paths))
+        hit = self.ramps.get(key)
+        if hit is None:
+            pts, drop = [], 0.0
+            for p in paths:
+                if not p.zs:
+                    continue
+                xy, seg, t = self.of(p)
+                zs = np.asarray(p.zs)
+                z = zs[seg] + (zs[seg + 1] - zs[seg]) * t
+                low = z < p.z - 1e-6
+                if low.any():
+                    pts.append(xy[low])
+                    drop = max(drop, float(p.z - z[low].min()))
+            hit = (tuple(paths), (cKDTree(np.vstack(pts)), drop) if pts else None)
+            self.ramps[key] = hit
         return hit[1]
 
 

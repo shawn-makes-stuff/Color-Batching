@@ -30,7 +30,7 @@ def _variant(prog, nozzle, cfg, lim, staggered, per_object, progress=None):
     report = progress or (lambda fraction, stage: None)
     st, co, nz = cfg["stack"], cfg["cooling"], cfg["nozzle"]
     opts = Options(int(st["max_band_layers"]), st["surface_tolerance"], st["resolution"], st["min_piece"],
-                   per_object)
+                   per_object, prog.free_support if st["free_support"] else frozenset())
     split = PLAN_WEIGHT[staggered] / (PLAN_WEIGHT[staggered] + WRITE_WEIGHT)
     stage = "Planning staggered colours" if staggered else "Planning colour bands"
     if staggered:
@@ -88,13 +88,13 @@ def run(input_path, output_path, cfg, progress=None):
     if len(variants) == 1:
         report(0.05, "Timing the original")
         o = estimate(original, lim)
-        results = [_variant(prog, nozzle, cfg, lim, *variants[0], _progress_span(report, 0.1, 0.97))]
+        results = [_variant(prog, nozzle, cfg, lim, *variants[0], progress=_progress_span(report, 0.1, 0.97))]
     else:
         # the variants do not depend on each other: one process each, the original timed meanwhile
         report(0.05, "Planning colour bands")
         try:
             with ProcessPoolExecutor(max_workers=len(variants)) as pool:
-                jobs = [pool.submit(_variant, prog, nozzle, cfg, lim, s, po) for s, po in variants]
+                jobs = [pool.submit(_variant, prog, nozzle, cfg, lim, *v) for v in variants]
                 o = estimate(original, lim)
                 done = 0
                 for _ in as_completed(jobs):
@@ -103,9 +103,9 @@ def run(input_path, output_path, cfg, progress=None):
                 results = [j.result() for j in jobs]
         except BrokenProcessPool:       # a host that cannot start worker processes: one after another
             o = estimate(original, lim)
-            results = [_variant(prog, nozzle, cfg, lim, s, po, _progress_span(report, 0.1 + 0.87 * k / len(variants),
-                                                                           0.1 + 0.87 * (k + 1) / len(variants)))
-                       for k, (s, po) in enumerate(variants)]
+            results = [_variant(prog, nozzle, cfg, lim, *v, progress=_progress_span(
+                report, 0.1 + 0.87 * k / len(variants), 0.1 + 0.87 * (k + 1) / len(variants)))
+                for k, v in enumerate(variants)]
     slicer = file_estimate(original)
     each, _ = swap_each(o, slicer, lim)
     best = None

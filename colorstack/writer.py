@@ -236,7 +236,7 @@ class Writer:
         position, Z, retraction), and no plastic taller than the route stands within the nozzle's reach of it."""
         if not (p.lead and q is not None and q.tail and p.head and p.seq == q.seq + 1 and p.tool == q.tool
                 and p.tool in (None, self.tool) and not self.retracted and self.pos is not None
-                and self.z is not None and math.dist(self.pos, q.pts[-1]) < 1e-6 and abs(self.z - q.z) < 1e-6):
+                and self.z is not None and math.dist(self.pos, q.pts[-1]) < 1e-6 and abs(self.z - q.z1) < 1e-6):
             return False
         pos, z = self.pos, self.z
         for item in p.lead:
@@ -246,7 +246,7 @@ class Writer:
             if math.dist(pos, (x, y)) > 1e-9 and self.clear_z(x, y, nz, pos, z) > min(z, nz) + 1e-6:
                 return False
             pos, z = (x, y), nz
-        return math.dist(pos, p.pts[0]) < 1e-6 and abs(z - p.z) < 1e-6
+        return math.dist(pos, p.pts[0]) < 1e-6 and abs(z - p.z0) < 1e-6
 
     def replay(self, lead):
         """Write the slicer's way into the next path as it wrote it (relative E)."""
@@ -413,7 +413,7 @@ class Writer:
             self.obj = p.obj
         x0, y0 = p.pts[0]
         q = self.last
-        z0 = p.z
+        z0 = p.z0          # a scarf seam ramp starts below the layer
         high = self.clear_z(x0, y0, z0)
         if self.can_replay(p, q):
             self.replay(p.lead)
@@ -455,7 +455,11 @@ class Writer:
             x, y = p.pts[i + 1]
             fs = f" F{_fmt(f)}" if f != self.f else ""
             es = f" E{e:.5f}" if e > 0 else ""
-            self.emit(f"G1 X{_fmt(x)} Y{_fmt(y)}{es}{fs}")
+            zs = ""
+            if p.zs and abs(p.zs[i + 1] - self.z) > 1e-9:     # scarf seam ramp
+                zs = f" Z{_fmt(p.zs[i + 1])}"
+                self.z = p.zs[i + 1]
+            self.emit(f"G1 X{_fmt(x)} Y{_fmt(y)}{zs}{es}{fs}")
             self.f = f
         self.pos = p.pts[-1]
         self.last_pts = p.pts

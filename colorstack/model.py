@@ -35,6 +35,7 @@ class Path:
     vlim: tuple = ()          # other SET_VELOCITY_LIMIT parameters in force, ((name, value), ...)
     height: float | None = None   # line height the slicer wrote for it (;HEIGHT: after ;TYPE:), None = the layer's
     state: tuple = ()         # machine state commands in force (PA, speed / flow factor, jerk): ((key, line), ...)
+    zs: tuple | None = None   # Z per point where it changes along the path (Orca scarf seam ramp); z is then the top
     lead: tuple = ()          # the slicer's way into the path since the extrusion before it: ("move", x, y, z, de, f)
                               # (retracts, wipes, lifts, travel route) and ("line", text) (G10 / G11, wipe markers)
 
@@ -44,6 +45,15 @@ class Path:
 
     def length(self):
         return sum(math.dist(self.pts[k], self.pts[k + 1]) for k in range(len(self.e)))
+
+    @property
+    def z0(self):
+        """Z at the first point (a scarf seam ramp starts below the layer)."""
+        return self.zs[0] if self.zs else self.z
+
+    @property
+    def z1(self):
+        return self.zs[-1] if self.zs else self.z
 
 
 @dataclass
@@ -79,6 +89,9 @@ class Program:
     unknown: Counter = field(default_factory=Counter)
     # what the slicer writes in a swap: tool -> lines before T when leaving it (filament end G-code), lines after T
     # when entering it (filament start G-code); the first swap of each
+    # (object, type) of support printed with whatever filament was loaded (Orca support_filament "Default": the slicer
+    # printed it with several filaments); support always printed with one filament keeps it
+    free_support: frozenset = frozenset()
     toolchange_end: dict = field(default_factory=dict)
     toolchange_start: dict = field(default_factory=dict)
 
