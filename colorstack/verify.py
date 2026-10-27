@@ -4,10 +4,13 @@ outer surface colours.  python -m colorstack.verify original.gcode processed.gco
 """
 import argparse
 import math
+import re
 
 import numpy as np
 
-from .pipeline import CONFIG_PATH, load_config
+from .config import CONFIG_PATH, DEFAULTS, load_config
+from .estimate import estimate, file_estimate, machine_limits, swap_each
+from .parse import _parse_settings
 from .reader import load, read
 
 
@@ -95,6 +98,334 @@ def surface_colours(original, processed, res=0.1):
                 got.setdefault(c, tool)
     wrong = sum(1 for c, t in surface.items() if c in got and got[c] != t)
     return len(surface) * res, wrong * res
+
+
+def _states(path, step=0.5):
+    """Samples every `step` mm along each extrusion, with the machine state it printed under:
+    {(z, x, y): (tool, type, F, flow mm/mm, PA, fan, other fans, nozzle temp, accel, speed %, flow %)}, and the number
+    of extrusion starts per feature type (an extrusion right after a travel or a retract)."""
+    out, starts = {}, {}
+    tool, typ, pa, temp, accel, speed, flow = 0, "", None, None, None, 100.0, 100.0
+    fans = {}
+    live = moving = False
+    lines = load(path)
+    # the first layer's temperature from the settings, as the parser does (start G-code may set it by macro)
+    m = next((re.match(r"^; nozzle_temperature_initial_layer = (.*)$", ln) for ln in lines
+              if ln.startswith("; nozzle_temperature_initial_layer =")), None)
+    initial = [float(x) for x in m.group(1).split(",")] if m else []
+    for i, kind, v in read(lines):
+        if kind == "tool":
+            tool = v[0]
+            if not live and initial:
+                temp = initial[min(tool, len(initial) - 1)]
+        elif kind == "type":
+            typ = v
+            if v == "Custom" and live:
+                live = False
+        elif kind == "layer" or kind == "comment" and v.startswith("; COLORSTACK"):
+            live = True        # our output: layers follow the summary
+        elif kind == "accel":
+            accel = v
+        elif kind == "cmd":
+            w = v.split()[0].upper()
+            words = dict(re.findall(r"\b([A-Z])(-?\d*\.?\d+)", v.upper()))
+            if w == "SET_PRESSURE_ADVANCE" and "ADVANCE=" in v.upper():
+                pa = float(re.search(r"ADVANCE=(-?\d*\.?\d+)", v.upper()).group(1))
+            elif w in ("M900", "M572"):
+                pa = float(words.get("K", words.get("S", pa or 0)))
+            elif w in ("M104", "M109") and "S" in words and ("T" not in words or int(float(words["T"])) == tool):
+                temp = float(words["S"])
+            elif w in ("M106", "M107"):
+                key = "" if words.get("P", "0") == "0" else "P" + words["P"]
+                fans[key] = 0 if w == "M107" else int(float(words.get("S", 255)))
+            elif w == "M220" and "S" in words:
+                speed = float(words["S"])
+            elif w == "M221" and "S" in words:
+                flow = float(words["S"])
+        elif kind == "move":
+            extruding = v.de > 0 and v.xy > 1e-9
+            if not extruding:
+                if v.xy > 1e-9 or v.de != 0 or abs(v.z1 - v.z0) > 1e-9:   # not a feedrate-only line
+                    moving = False
+                continue
+            if not live or typ == "Prime tower":
+                continue
+            if not moving:
+                starts[typ] = starts.get(typ, 0) + 1
+                moving = True
+            n = max(1, int(v.xy / step))
+            other = tuple(sorted((k, s) for k, s in fans.items() if k))
+            state = (tool, typ, round(v.f), round(v.de / v.xy, 4), pa, fans.get("", 0), other, temp, accel, speed, flow)
+            for t in (np.arange(n) + 0.5) / n:
+                key = (round(v.z0 + (v.z1 - v.z0) * t, 2), round((v.x0 + (v.x1 - v.x0) * t) / 0.1),
+                       round((v.y0 + (v.y1 - v.y0) * t) / 0.1))
+                out.setdefault(key, state)
+    return out, starts
+
+
+def _travels(path):
+    """Travel style within the layers: retracts, wipes, Z hops, firmware retracts (G10), travel mm."""
+    out = dict.fromkeys(("retracts", "wipes", "hops", "G10", "travel_mm"), 0.0)
+    live = False
+    for i, kind, v in read(load(path)):
+        if kind == "layer" or kind == "comment" and v.startswith("; COLORSTACK"):
+            live = True
+        elif kind == "type" and v == "Custom" and live:
+            live = False
+        elif not live:
+            continue
+        elif kind == "comment" and v.startswith(";WIPE_START"):
+            out["wipes"] += 1
+        elif kind == "cmd" and v.split()[0].upper() == "G10":
+            out["G10"] += 1
+        elif kind == "move":
+            if v.de < 0 and v.xy < 1e-9:
+                out["retracts"] += 1
+            if v.z1 > v.z0 + 1e-6 and v.de == 0:
+                out["hops"] += 1
+            if v.de == 0:
+                out["travel_mm"] += v.xy
+    return out
+
+
+SWAP_SKIP = {"M73", "G92", "G17", "G10", "G11", "M400", "G4", "M104", "M109", "SET_PRINT_STATS_INFO", "M106", "M107",
+             "EXCLUDE_OBJECT_START", "EXCLUDE_OBJECT_END", "SET_VELOCITY_LIMIT", "M204",
+             "SET_PRESSURE_ADVANCE", "M900", "M572", "M220", "M221", "M205", "M566"}   # restated by ColorStack
+
+
+def _swap_blocks(path):
+    """Per swap (from tool, to tool, commands since the last extrusion before T, commands after T up to the next
+    extrusion); fans, temperatures and motion settings are left out (ColorStack writes those per path)."""
+    out, before, after, swap = [], [], [], None
+    tool = None
+    for i, kind, v in read(load(path)):
+        if kind == "tool":
+            if swap is not None:                 # T without extrusion in between: close the open swap
+                out.append((*swap, tuple(before), tuple(after)))
+                before = []
+            swap, after = (tool, v[0]), []
+            tool = v[0]
+        elif kind == "cmd" and v.split()[0].upper() not in SWAP_SKIP:
+            (after if swap else before).append(v)
+        elif kind == "move" and v.de > 0 and v.xy > 1e-9:
+            if swap is not None:
+                out.append((*swap, tuple(before), tuple(after)))
+                swap = None
+            before = []
+    return out
+
+
+def swap_fidelity(original, processed):
+    """Per tool: swaps whose end block (leaving it) or start block (entering it) is not one the original used for
+    that tool. Returns {tool: (swaps out, wrong end blocks, swaps in, wrong start blocks)}; a tool the original never
+    left or entered has nothing to compare against and counts every swap as wrong."""
+    ends, starts = {}, {}
+    for a, b, pre, post in _swap_blocks(original):
+        if a is None:
+            continue
+        ends.setdefault(a, set()).add(pre)
+        starts.setdefault(b, set()).add(post)
+    out = {}
+    for a, b, pre, post in _swap_blocks(processed):
+        if a is None:          # the start G-code's tool
+            continue
+        r = out.setdefault(a, [0, 0, 0, 0])
+        r[0] += 1
+        r[1] += pre not in ends.get(a, ())
+        r = out.setdefault(b, [0, 0, 0, 0])
+        r[2] += 1
+        r[3] += post not in starts.get(b, ())
+    return out
+
+
+def _arrivals(path):
+    """How the nozzle reached each extrusion start inside the layers: {(z, x, y) of the start: (retracted, hopped,
+    wiped, travel mm, highest Z on the way, (x, y) of the extrusion before)}."""
+    out = {}
+    live = False
+    retracted = hopped = wiped = False
+    route, top, prev_extruding = 0.0, 0.0, True
+    came_from = None                 # where the last extrusion ended
+    for i, kind, v in read(load(path)):
+        if kind == "layer" or kind == "comment" and v.startswith("; COLORSTACK"):
+            live = True
+        elif kind == "type" and v == "Custom" and live:
+            live = False
+        elif kind == "comment" and v.startswith(";WIPE_START"):
+            wiped = True
+        elif kind == "cmd" and v.split()[0].upper() == "G10":
+            retracted = True
+        elif kind == "move":
+            if v.de > 0 and v.xy > 1e-9:
+                if not prev_extruding and live:
+                    key = (round(v.z0, 2), round(v.x0 / 0.1), round(v.y0 / 0.1))
+                    out.setdefault(key, (retracted, hopped, wiped, round(route, 1), round(top, 2), came_from))
+                prev_extruding = True
+                came_from = (round(v.x1 / 0.1), round(v.y1 / 0.1))
+                retracted = hopped = wiped = False
+                route, top = 0.0, 0.0
+                continue
+            if v.xy < 1e-9 and v.de == 0 and abs(v.z1 - v.z0) < 1e-9:
+                continue                     # feedrate only
+            if prev_extruding:
+                top = v.z0
+            prev_extruding = False
+            retracted |= v.de < 0
+            hopped |= v.z1 > v.z0 + 1e-6
+            route += v.xy if v.de == 0 else 0.0
+            top = max(top, v.z1)
+    return out
+
+
+def arrival_fidelity(original, processed):
+    """Extrusion starts of the original found in the processed file, and how many arrive differently: retract,
+    hop or wipe changed, or a travel route more than 10% / 1 mm longer or shorter (the slicer's route lost). Only
+    starts that come from the same extrusion as in the original count; the rest are reordered."""
+    a, b = _arrivals(original), _arrivals(processed)
+    counts = dict.fromkeys(("matched", "reordered", "retract", "hop", "wipe", "route"), 0)
+    for key, (ra, ha, wa, la, _, fa) in a.items():
+        if key not in b:
+            continue
+        rb, hb, wb, lb, _, fb = b[key]
+        if fa != fb:
+            counts["reordered"] += 1
+            continue
+        counts["matched"] += 1
+        counts["retract"] += ra != rb
+        counts["hop"] += ha != hb
+        counts["wipe"] += wa != wb
+        counts["route"] += abs(la - lb) > max(1.0, 0.1 * la)
+    return counts
+
+
+def _layer_times(lines, lim, each, cell=0.5):
+    """When each spot got each layer: {(x cell, y cell): {z: (seconds since start, tool)}} from the timeline of the
+    estimate (a colour change counts the slicer's time per swap)."""
+    steps = []
+    estimate(lines, lim, steps)
+    at, t = {}, 0.0
+    for k, sec in steps:
+        t += each if sec is None else sec
+        at[k] = t
+    out, tool, live, typ = {}, 0, False, ""
+    for i, kind, v in read(lines):
+        if kind == "tool":
+            tool = v[0]
+        elif kind == "layer" or kind == "comment" and v.startswith("; COLORSTACK"):
+            live = True
+        elif kind == "type":
+            live = live and v != "Custom"
+            typ = v
+        elif kind == "move" and live and v.de > 0 and v.xy > 1e-9 and typ != "Prime tower":
+            for s in (0.25, 0.75):
+                key = (round((v.x0 + (v.x1 - v.x0) * s) / cell), round((v.y0 + (v.y1 - v.y0) * s) / cell))
+                out.setdefault(key, {}).setdefault(round(v.z1, 2), (at.get(i, t), tool))
+    return out
+
+
+def cooling_fidelity(original, processed, cell=0.3):
+    """Spots that get less time before the next layer lands on them than in the original, and less than the
+    slicer's minimum layer time for the filament printing that layer. Returns (spot-layers compared, worse,
+    worst [(gap processed s, gap original s, minimum s, (x, y, z))])."""
+    lines_a, lines_b = load(original), load(processed)
+    settings = _parse_settings(lines_a)
+    lim = machine_limits(settings, DEFAULTS["printer"])
+    o = estimate(lines_a, lim)
+    each, _ = swap_each(o, file_estimate(lines_a), lim)
+    need = [float(x) for x in settings.get("slow_down_layer_time", "0").split(",")]
+    on = settings.get("slow_down_for_layer_cooling", "1").split(",")
+    a, b = _layer_times(lines_a, lim, each, cell), _layer_times(lines_b, lim, each, cell)
+    compared, worse = 0, []
+    for key, layers_a in a.items():
+        layers_b = b.get(key)
+        if not layers_b:
+            continue
+        zs = sorted(z for z in layers_a if z in layers_b)
+        for z0, z1 in zip(zs, zs[1:]):
+            gap_a = layers_a[z1][0] - layers_a[z0][0]
+            gap_b = layers_b[z1][0] - layers_b[z0][0]
+            tool = layers_b[z1][1]
+            k = min(tool, len(need) - 1)
+            minimum = need[k] if on[min(tool, len(on) - 1)].strip() == "1" else 0.0
+            if gap_a <= 0 or gap_b <= 0:      # a neighbour in the same cell, not this spot's next layer
+                continue
+            compared += 1
+            if gap_b < gap_a * 0.9 and gap_b < minimum:
+                worse.append((round(gap_b, 1), round(gap_a, 1), minimum, (key[0] * cell, key[1] * cell, z1)))
+    worse.sort()
+    return compared, len(worse), worse[:5]
+
+
+def e_balance(path):
+    """Filament laid down minus net extruder travel: what is left retracted at the end (a retract never undone
+    adds to it)."""
+    net = laid = 0.0
+    for i, kind, v in read(load(path)):
+        if kind == "move":
+            net += v.de
+            if v.de > 0 and v.xy > 1e-9:
+                laid += v.de
+    return laid - net
+
+
+FIELDS = ("tool", "type", "speed", "flow", "PA", "fan", "other fans", "temperature", "accel", "speed %", "flow %")
+
+
+def fidelity(original, processed, step=0.5):
+    """How the processed file prints the original's extrusions: per state field, the mm printed differently, split
+    into lines that kept their tool and lines handed to another tool; and extrusion starts per feature type."""
+    a, starts_a = _states(original, step)
+    b, starts_b = _states(processed, step)
+    # a line handed to another filament should carry that filament's flow (Orca: E = volume x flow ratio / area) and
+    # stay within its volumetric limit
+    cfg = {m.group(1): m.group(2) for m in (re.match(r"^; (\w+) = (.*)$", ln) for ln in load(original)[-3000:]) if m}
+
+    def per_tool(key, default):
+        try:
+            return [float(v) for v in cfg[key].split(",")]
+        except (KeyError, ValueError):
+            return [default]
+    ratio, diam = per_tool("filament_flow_ratio", 1.0), per_tool("filament_diameter", 1.75)
+    max_vol = per_tool("filament_max_volumetric_speed", math.inf)
+
+    def pick(values, tool):
+        return values[min(tool or 0, len(values) - 1)]
+    near = [(0, 0)] + [(dx, dy) for dx in (-1, 0, 1) for dy in (-1, 0, 1) if dx or dy]
+    diffs = {}          # (field, kept | handed, type, + | - | "") -> mm
+    examples = {}       # same key -> ((z, x, y), original value, processed value), the first one found
+    matched = missing = 0
+    for (z, x, y), sa in a.items():
+        sb = next((b[(z, x + dx, y + dy)] for dx, dy in near if (z, x + dx, y + dy) in b), None)
+        if sb is None:
+            missing += 1
+            continue
+        matched += 1
+        group = "kept" if sa[0] == sb[0] else "handed"
+        want = list(sa)
+        if group == "handed":
+            want[3] = sa[3] * pick(ratio, sb[0]) / pick(ratio, sa[0]) * (pick(diam, sa[0]) / pick(diam, sb[0])) ** 2
+        vol = sb[3] * math.pi * pick(diam, sb[0]) ** 2 / 4 * sb[2] / 60 * sb[9] / 100
+        vol_a = sa[3] * math.pi * pick(diam, sa[0]) ** 2 / 4 * sa[2] / 60 * sa[9] / 100
+        # over the printing filament's limit, and more than the original printed there (Orca limits by line
+        # width x height, which can sit a little above the E-based figure)
+        limit = pick(max_vol, sb[0])
+        if vol > limit * 1.03 if group == "handed" else vol > limit * 1.01 and vol > vol_a * 1.01:
+            key = ("over max flow", group, sa[1], "+")
+            diffs[key] = diffs.get(key, 0.0) + step
+            examples.setdefault(key, ((z, x * 0.1, y * 0.1), round(pick(max_vol, sb[0]), 2), round(vol, 2)))
+        for k in range(1, len(FIELDS)):
+            sa_k = want[k]
+            same = (abs(sa_k - sb[k]) <= 0.01 * max(abs(sa_k), 1e-9) if isinstance(sa_k, float) and
+                    isinstance(sb[k], float) else sa_k == sb[k])
+            if not same:
+                way = ("+" if sb[k] > sa_k else "-") if isinstance(sa_k, (int, float)) and isinstance(
+                    sb[k], (int, float)) else ""
+                key = (FIELDS[k], group, sa[1], way)
+                diffs[key] = diffs.get(key, 0.0) + step
+                examples.setdefault(key, ((z, x * 0.1, y * 0.1), sa_k, sb[k]))
+    return {"matched_mm": matched * step, "missing_mm": missing * step, "diffs": diffs, "examples": examples,
+            "starts": {t: (starts_a.get(t, 0), starts_b.get(t, 0)) for t in starts_a.keys() | starts_b.keys()},
+            "travels": (_travels(original), _travels(processed))}
 
 
 def check(original, processed, nozzle, res=0.05):
@@ -195,7 +526,29 @@ def main():
     ap.add_argument("-c", "--config", default=str(CONFIG_PATH))
     ap.add_argument("--contact", type=float, help="override nozzle.contact")
     ap.add_argument("--set", action="append", default=[], metavar="nozzle.KEY=VALUE")
+    ap.add_argument("--fidelity", action="store_true", help="only compare print state per extruded mm")
     a = ap.parse_args()
+    if a.fidelity:
+        r = fidelity(a.original, a.processed)
+        print(f"matched {r['matched_mm']:.0f} mm, not found {r['missing_mm']:.0f} mm")
+        for key, mm in sorted(r["diffs"].items(), key=lambda kv: -kv[1]):
+            field, group, typ, way = key
+            (z, x, y), va, vb = r["examples"][key]
+            print(f"  {field:12} {way:1} {group:7} {typ:24} {mm:10.1f} mm   e.g. z{z} x{x:.1f} y{y:.1f}: {va} -> {vb}")
+        print("extrusion starts (original -> processed):")
+        for typ, (x, y) in sorted(r["starts"].items()):
+            print(f"  {typ:28} {x:6} -> {y:6}")
+        ta, tb = r["travels"]
+        print("travels: " + ", ".join(f"{k} {ta[k]:.0f} -> {tb[k]:.0f}" for k in ta))
+        c = arrival_fidelity(a.original, a.processed)
+        print(f"arrivals: {c['matched']} extrusion starts in the slicer's order ({c['reordered']} reordered); "
+              f"arriving differently: retract {c['retract']}, "
+              f"hop {c['hop']}, wipe {c['wipe']}, route {c['route']}")
+        for t, (n_out, bad_end, n_in, bad_start) in sorted(swap_fidelity(a.original, a.processed).items(),
+                                                           key=lambda kv: str(kv[0])):
+            print(f"swaps T{t}: leaving {n_out} ({bad_end} with an end block the original never used), "
+                  f"entering {n_in} ({bad_start} with a start block the original never used)")
+        return
     nozzle = load_config(a.config)["nozzle"]
     if a.contact is not None:
         nozzle["contact"] = a.contact

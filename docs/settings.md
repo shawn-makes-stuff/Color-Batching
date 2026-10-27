@@ -14,12 +14,13 @@ run with `python -m colorstack in.gcode --set section.key=value`.
 | `stack.min_piece` | 2.0 mm | Shorter leftovers between handed-over pieces are handed over too. |
 | `stack.per_object` | on | Also plan each object on its own; the faster plan is kept. |
 | `stack.staggered` | off | Also plan each colour on its own schedule (fewer swaps where 3+ colours share layers); the faster plan is kept. Slower processing. |
+| `stack.free_support` | on | Support the slicer printed with whatever filament was loaded (support filament "Default") may be printed by another filament of the same material, so it stacks. Support (or interface) with a chosen filament keeps it. |
 | `stack.resolution` | 0.1 mm | Sampling step for the collision planning. |
-| `cooling.respect_min_layer_time` | off | Slow regions printed straight on top of themselves down to the minimum layer time, as the slicer does. Off keeps the sliced speeds. |
+| `cooling.respect_min_layer_time` | on | Slow regions printed straight on top of themselves down to the minimum layer time, as the slicer does (not below its minimum speed). Outer walls always keep their sliced speed. |
 | `cooling.stacked_fan` | on | Raise the part fan on regions printed straight on top of themselves, by the slicer's own fan rule. |
 | `cooling.lift_wait` | off | If such a region is still under the minimum layer time at minimum speed, lift clear and wait. |
 | `cooling.min_layer_time` | 0 s | Minimum layer time for stacked regions; 0 = the file's own per filament. |
-| `cooling.tower_between` | off | Print the tower's walls and grid between a colour's stacked layers, as cooling time. |
+| `cooling.tower_between` | on | Print the tower's walls and grid between a colour's stacked layers, as cooling time. |
 | `swap.lift` | 1.0 mm | Lift above the tallest printed point before each colour change (at least the slicer's Z hop). |
 | `export.printer_host` | (empty) | Moonraker address for Send to printer, e.g. `192.168.1.20` or `192.168.1.20:7125`. |
 | `printer.*` | Klipper defaults | Motion limits for the time estimate, only for files that do not carry the slicer's machine limits. |

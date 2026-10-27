@@ -8,11 +8,17 @@ before its end G-code.
 import math
 from dataclasses import replace
 
-import numpy as np
+from .geometry import Heights
+from .model import BARRIERS
 
-from .gcode import BARRIERS
-from .plan import Grid, densify
-
+PA_WORDS = {"SET_PRESSURE_ADVANCE", "M900", "M572"}
+# Orca's per-filament overrides of the printer's retraction (filament_extruder_override_keys in PrintConfig.cpp; "nil"
+# = the printer's value) -> the writer's attribute
+FILAMENT_OVERRIDES = {"filament_retraction_length": "retract", "filament_z_hop": "z_hop",
+                      "filament_retraction_speed": "retract_f", "filament_deretraction_speed": "deretract_f",
+                      "filament_retract_restart_extra": "restart_extra", "filament_retraction_minimum_travel":
+                      "min_travel", "filament_wipe": "wipe", "filament_wipe_distance": "wipe_dist",
+                      "filament_retract_before_wipe": "before_wipe"}
 # a layer's bed / chamber changes and pauses wait until every layer below it is printed
 SETTLED = {"M140", "M190", "M141", "M191"} | BARRIERS
 
@@ -21,38 +27,16 @@ def _fmt(v):
     return f"{v:.3f}".rstrip("0").rstrip(".")
 
 
+def _block(blocks, tool):
+    """The slicer's swap block for tool; a tool the original never swapped (its block lives in the start G-code)
+    takes another tool's, as the slicer renders one template per filament."""
+    # ponytail: a tool never swapped in the original gets another filament's rendered block; render the
+    # filament_start/end_gcode templates if that proves wrong
+    return blocks.get(tool) or next(iter(blocks.values()), [])
+
+
 def _print_time(paths):
     return sum(math.dist(p.pts[i], p.pts[i + 1]) / (p.f[i] / 60) for p in paths for i in range(len(p.e)) if p.f[i] > 0)
-
-
-class Heights:
-    """Tallest plastic printed so far, on a grid, for travels that lift only as high as they must."""
-
-    def __init__(self, program, res=0.5):
-        self.grid = Grid(program, res)
-        self.h = np.zeros(self.grid.shape)
-        self.pad = max(p.width for L in program.layers for p in L.paths) / 2 + res
-
-    def add(self, p):
-        r, c = self.grid.cells(densify(p, self.grid.res / 2)[0])
-        np.maximum.at(self.h, (r, c), p.z)
-
-    def max_near(self, a, b, radius):
-        """Tallest plastic within radius of the segment a-b (line width and grid step added)."""
-        g, radius = self.grid, radius + self.pad
-        c0 = max(0, int((min(a[0], b[0]) - radius - g.x0) / g.res))
-        c1 = min(g.shape[1], int((max(a[0], b[0]) + radius - g.x0) / g.res) + 2)
-        r0 = max(0, int((min(a[1], b[1]) - radius - g.y0) / g.res))
-        r1 = min(g.shape[0], int((max(a[1], b[1]) + radius - g.y0) / g.res) + 2)
-        if c0 >= c1 or r0 >= r1:
-            return 0.0
-        px, py = np.meshgrid(g.x0 + np.arange(c0, c1) * g.res, g.y0 + np.arange(r0, r1) * g.res)
-        dx, dy = b[0] - a[0], b[1] - a[1]
-        n2 = dx * dx + dy * dy
-        t = np.clip(((px - a[0]) * dx + (py - a[1]) * dy) / n2, 0, 1) if n2 > 0 else 0.0
-        near = np.hypot(px - a[0] - t * dx, py - a[1] - t * dy) <= radius
-        sub = self.h[r0:r1, c0:c1][near]
-        return float(sub.max()) if sub.size else 0.0
 
 
 class Writer:
@@ -72,9 +56,13 @@ class Writer:
         t = program.travel
         self.retract, self.retract_f, self.deretract_f = t["retract"], t["retract_f"], t["deretract_f"]
         self.z_hop, self.travel_f, self.min_travel = t["z_hop"], t["travel_f"], t["min_travel"]
+        self.firmware = t.get("firmware", False)      # G10 / G11: the printer's own retraction, no wipe
+        self.restart_extra = t.get("restart_extra", 0.0)
         setting = program.setting_list
         diam = setting("filament_diameter", default=[1.75])
         self.area = [math.pi * d * d / 4 for d in diam]
+        self.flow_ratio = setting("filament_flow_ratio", default=[1.0])
+        self.max_vol = setting("filament_max_volumetric_speed", default=[])     # mm3/s, per filament
         n = len(diam)
         flat = setting("flush_volumes_matrix")
         self.flush = [flat[i * n:(i + 1) * n] for i in range(n)] if flat and len(flat) == n * n else None
@@ -112,8 +100,12 @@ class Writer:
         except ValueError:
             self.before_wipe = 0.0
         self.role_wipe = program.settings.get("role_based_wipe_speed", "0").strip() == "1"   # Orca: wipe at print speed
-        # the slicer's tool change extras, minus the part fan (fans follow each path)
-        self.tc_extra = [ln for ln in program.toolchange_extra if not (ln.startswith("M106") and " P" not in ln)]
+        self.machine_travel = {k: getattr(self, k) for k in FILAMENT_OVERRIDES.values()}
+        self._use_filament(program.first_tool)
+        # the slicer's swap blocks per tool, minus the part fan (fans follow each path)
+        def own(blocks):
+            return {t: [ln for ln in b if not (ln.startswith("M106") and " P" not in ln)] for t, b in blocks.items()}
+        self.tc_end, self.tc_start = own(program.toolchange_end), own(program.toolchange_start)
         self.out = []
         self.pos = None
         self.z = None
@@ -123,6 +115,7 @@ class Writer:
         self.scv = None
         self.vlim = ()
         self.fans = {}
+        self.state = {}            # machine state commands written: key -> line
         self.obj = None
         self.type = None
         self.width = None
@@ -132,7 +125,26 @@ class Writer:
         self.last_pts = None       # its points, for the wipe
         self.object_f = None       # feed of the last object (not tower) line: Orca's role-based wipe speed
         self.retracted = False
+        self.retracted_by = 0.0
         self.touched = set()
+
+    def _use_filament(self, tool):
+        """Retraction settings for tool: its filament's overrides where set, else the printer's."""
+        for key, attr in FILAMENT_OVERRIDES.items():
+            value = self.machine_travel[attr]
+            values = self.p.settings.get(key, "").split(",")
+            raw = values[min(tool, len(values) - 1)].strip() if tool is not None else ""
+            if raw and raw != "nil":
+                try:
+                    v = float(raw.rstrip("%"))
+                except ValueError:
+                    v = None
+                if v is not None:
+                    value = (bool(v) if attr == "wipe" else v / 100 if attr == "before_wipe"
+                             else v * 60 if attr in ("retract_f", "deretract_f") else v)
+                    if attr == "deretract_f" and v == 0:      # Orca: 0 = the retraction speed
+                        value = self.retract_f
+            setattr(self, attr, value)
 
     def emit(self, line):
         self.out.append(line)
@@ -149,10 +161,11 @@ class Writer:
         if self.retracted:
             return
         self.retracted = True
+        self.retracted_by = self.retract     # primed back by the same amount, also after a swap (as Orca does)
         pts = self.last_pts
         if not (self.wipe and self.wipe_dist > 0 and pts and len(pts) > 1 and self.pos is not None
-                and math.dist(self.pos, pts[-1]) < 1e-6):
-            self.emit(f"G1 E-{_fmt(self.retract)} F{_fmt(self.retract_f)}")
+                and math.dist(self.pos, pts[-1]) < 1e-6) or self.firmware:
+            self._plain_retract()
             return
         back = list(reversed(pts))
         route, left = [], self.wipe_dist
@@ -182,11 +195,17 @@ class Writer:
         self.pos, self.f = route[-1][0], wipe_f
         self.last_pts = None
 
+    def _plain_retract(self):
+        self.emit("G10" if self.firmware else f"G1 E-{_fmt(self.retract)} F{_fmt(self.retract_f)}")
+
     def deretract(self):
         if self.retracted:
-            self.emit(f"G1 E{_fmt(self.retract)} F{_fmt(self.deretract_f)}")
+            if self.firmware:
+                self.emit("G11")
+            else:
+                self.emit(f"G1 E{_fmt(self.retracted_by + self.restart_extra)} F{_fmt(self.deretract_f)}")
+                self.f = self.deretract_f
             self.retracted = False
-            self.f = self.deretract_f
 
     def lift(self, z):
         if self.z is None or abs(z - self.z) > 1e-6:
@@ -201,14 +220,61 @@ class Writer:
         self.pos = (x, y)
         self.deretract()
 
-    def clear_z(self, x, y, z):
-        """Height a travel from here to (x, y) at z must clear: the tallest plastic within the nozzle's reach on the
-        way (its cone at the tallest printed point reaches no further; past clear_height the heater block could,
-        so then the tallest printed anywhere)."""
-        base = min(z, self.z) if self.z is not None else z
-        if self.pos is None or self.top <= base + 1e-6 or self.top - base > self.nozzle.clear_height:
+    def clear_z(self, x, y, z, frm=None, frm_z=None):
+        """Height a travel from frm (default: here) at frm_z to (x, y) at z must clear: the tallest plastic within the
+        nozzle's reach on the way (its cone at the tallest printed point reaches no further; past clear_height the
+        heater block could, so then the tallest printed anywhere)."""
+        frm = self.pos if frm is None else frm
+        frm_z = self.z if frm_z is None else frm_z
+        base = min(z, frm_z) if frm_z is not None else z
+        if frm is None or self.top <= base + 1e-6 or self.top - base > self.nozzle.clear_height:
             return self.top
-        return self.heights.max_near(self.pos, (x, y), self.nozzle.reach(self.top - base))
+        return self.heights.max_near(frm, (x, y), self.nozzle.reach(self.top - base))
+
+    def can_replay(self, p, q):
+        """The slicer's own way into p fits here: p follows q as in the slicer, nothing changed since q (tool,
+        position, Z, retraction), and no plastic taller than the route stands within the nozzle's reach of it."""
+        if not (p.lead and q is not None and q.tail and p.head and p.seq == q.seq + 1 and p.tool == q.tool
+                and p.tool in (None, self.tool) and not self.retracted and self.pos is not None
+                and self.z is not None and math.dist(self.pos, q.pts[-1]) < 1e-6 and abs(self.z - q.z1) < 1e-6):
+            return False
+        pos, z = self.pos, self.z
+        for item in p.lead:
+            if item[0] != "move":
+                continue
+            _, x, y, nz, _, _ = item
+            if math.dist(pos, (x, y)) > 1e-9 and self.clear_z(x, y, nz, pos, z) > min(z, nz) + 1e-6:
+                return False
+            pos, z = (x, y), nz
+        return math.dist(pos, p.pts[0]) < 1e-6 and abs(z - p.z0) < 1e-6
+
+    def replay(self, lead):
+        """Write the slicer's way into the next path as it wrote it (relative E)."""
+        balance = 0.0
+        for item in lead:
+            if item[0] == "line":
+                self.emit(item[1])
+                if item[1] in ("G10", "G11"):
+                    balance = -1.0 if item[1] == "G10" else 0.0
+                continue
+            _, x, y, z, de, f = item
+            words = []
+            if math.dist(self.pos, (x, y)) > 1e-9:
+                words += [f"X{_fmt(x)}", f"Y{_fmt(y)}"]
+            if abs(z - self.z) > 1e-9:
+                words.append(f"Z{_fmt(z)}")
+            if de:
+                words.append(f"E{de:.5f}")
+                balance += de
+            if f != self.f:
+                words.append(f"F{_fmt(f)}")
+            if words:
+                self.emit("G1 " + " ".join(words))
+            self.pos, self.z, self.f = (x, y), z, f
+        # the slicer rounds each E to 5 decimals: a retract undone leaves a few 1e-5 mm, a real one tenths
+        self.retracted = balance < -self.retract / 2
+        self.retracted_by = -balance
+        self.last_pts = None
 
     def travel(self, x, y, z, orca=None, high=None):
         """orca = (retract, hop): the slicer's own choice, when this is the travel it planned between the same two
@@ -244,8 +310,10 @@ class Writer:
             self._outside([f"M104 S{_fmt(t)}"])
             self.nozzle_t = t
 
-    def change_tool(self, tool, temp=None):
-        """Swap to tool, heading for temp (its temperature on the first layer it prints) during the swap."""
+    def change_tool(self, tool, temp=None, state=()):
+        """Swap to tool, heading for temp (its temperature on the first layer it prints) during the swap. state: the
+        machine state of the first line it prints; its pressure advance is set right after the swap, as Orca does
+        (the tower wipe already prints with it)."""
         if tool == self.tool:
             return
         self._end_object()
@@ -254,15 +322,25 @@ class Writer:
         self.lift(max(self.top, self.z or 0.0) + max(self.z_hop, self.swap_lift))
         self.emit(f"; COLORSTACK TOOLCHANGE T{self.tool} -> T{tool}")
         self.set_temp(temp)
+        self.out.extend(_block(self.tc_end, self.tool))
         self.emit(self.p.tool_format.format(n=tool, purge=f"{self.purge_length(self.tool, tool):.3f}"))
-        self.out.extend(self.tc_extra)
+        self.out.extend(_block(self.tc_start, tool))
         self.tool = tool
+        self._use_filament(tool)
         self.last = None
-        # the swap moves the head, may touch fans, and comes back primed
+        # the swap moves the head and may touch fans and machine state; the filament stays retracted until the next
+        # travel primes it, as the slicer unretracts after T
         self.pos = None
         self.z = None
         self.fans = {}
-        self.retracted = False
+        self.state = {}
+        self._state([(k, ln) for k, ln in state if k[0] in PA_WORDS])
+
+    def _state(self, items):
+        for k, ln in items:
+            if self.state.get(k) != ln:
+                self.emit(ln)
+                self.state[k] = ln
 
     def layer_start(self, layer):
         if layer.index in self.touched:
@@ -289,12 +367,39 @@ class Writer:
         for k in sorted(k for k in self.waiting if k <= self.settled):
             self._outside(self.waiting.pop(k))
 
-    def own_fans(self, p, tool, layer):
-        """A piece handed to another tool gets the fans the slicer set for that tool's lines of its kind there."""
-        if p.tool is None or p.tool == tool:
+    def own(self, p, tool, layer):
+        """A piece handed to another tool gets the fans and machine state (pressure advance) the slicer set for that
+        tool's lines of its kind there. Tower lines keep the loaded filament's pressure advance."""
+        if p.tool is None:
+            keep = tuple((k, ln) for k, ln in p.state if k[0] not in PA_WORDS)
+            return p if keep == p.state else replace(p, state=keep)
+        if p.tool == tool:
             return p
+        p = self._refill(p, tool)
         fans = self.p.fans.get((tool, layer.index, p.type))
-        return p if fans is None or fans == p.fans else replace(p, fans=fans)
+        state = self.p.state_at(tool, layer.index, p.type)
+        changes = {}
+        if fans is not None and fans != p.fans:
+            changes["fans"] = fans
+        if state is not None and state != p.state:
+            changes["state"] = state
+        return replace(p, **changes) if changes else p
+
+    def _refill(self, p, tool):
+        """p sliced for another filament, printed by tool: E for tool's flow ratio and filament area (Orca: E = volume
+        x flow ratio / area), slowed where that would pass tool's volumetric limit."""
+        def at(values, t):
+            return values[min(t, len(values) - 1)]
+        scale = (at(self.flow_ratio, tool) / at(self.flow_ratio, p.tool)) * (at(self.area, p.tool) / at(self.area, tool))
+        e = [v * scale for v in p.e]
+        f = list(p.f)
+        if self.max_vol:
+            cap = at(self.max_vol, tool) * 60 / at(self.area, tool)       # mm of filament per minute
+            for k, v in enumerate(e):
+                length = math.dist(p.pts[k], p.pts[k + 1])
+                if v > 0 and length > 0 and f[k] * v / length > cap:
+                    f[k] = cap * length / v
+        return p if e == p.e and f == p.f else replace(p, e=e, f=f)
 
     def path(self, p, layer):
         # the loaded filament's temperature for this layer (a handed-over piece is printed by another tool than it
@@ -308,9 +413,11 @@ class Writer:
             self.obj = p.obj
         x0, y0 = p.pts[0]
         q = self.last
-        z0 = p.z
+        z0 = p.z0          # a scarf seam ramp starts below the layer
         high = self.clear_z(x0, y0, z0)
-        if q is not None and high <= max(p.z, q.z) + 1e-6:
+        if self.can_replay(p, q):
+            self.replay(p.lead)
+        elif q is not None and high <= max(p.z, q.z) + 1e-6:
             # nothing taller on the way: travel as the slicer did into this path (its retract and hop). Where the
             # order changed: retract too if the travel is longer than the slicer's minimum, and no hop between two
             # tower pieces (the slicer never hops inside its tower)
@@ -329,6 +436,7 @@ class Writer:
         if p.vlim and p.vlim != self.vlim:      # () = nothing set yet: the printer's own, nothing to restore
             self.emit("SET_VELOCITY_LIMIT " + " ".join(f"{k}={v}" for k, v in p.vlim))
             self.vlim = p.vlim
+        self._state(p.state)
         for k, v in p.fans.items():
             if self.fans.get(k) != v:
                 self.emit(f"M106 {k + ' ' if k else ''}S{v}")
@@ -347,7 +455,11 @@ class Writer:
             x, y = p.pts[i + 1]
             fs = f" F{_fmt(f)}" if f != self.f else ""
             es = f" E{e:.5f}" if e > 0 else ""
-            self.emit(f"G1 X{_fmt(x)} Y{_fmt(y)}{es}{fs}")
+            zs = ""
+            if p.zs and abs(p.zs[i + 1] - self.z) > 1e-9:     # scarf seam ramp
+                zs = f" Z{_fmt(p.zs[i + 1])}"
+                self.z = p.zs[i + 1]
+            self.emit(f"G1 X{_fmt(x)} Y{_fmt(y)}{zs}{es}{fs}")
             self.f = f
         self.pos = p.pts[-1]
         self.last_pts = p.pts
@@ -374,8 +486,16 @@ class Writer:
             return paths, 0.0
         if t + extra >= need or not self.respect_min_layer_time:
             return self._fan(paths, k, t + extra, layer_index), 0.0
-        factor = t / (need - extra)
-        out = [replace(p, f=[max(f * factor, min(f, floor)) for f in p.f]) for p in paths]
+        # Orca's CoolingBuffer slows every extrusion proportionally, not below the minimum speed; outer walls keep
+        # their sliced speed here (a slowed outer wall shows as a line at every colour change)
+        fixed = _print_time([p for p in paths if p.type == "Outer wall"])
+        target = need - extra - fixed
+        if target > t - fixed > 0:
+            factor = (t - fixed) / target
+            out = [p if p.type == "Outer wall" else replace(p, f=[max(f * factor, min(f, floor)) for f in p.f])
+                   for p in paths]
+        else:
+            out = paths
         t2 = _print_time(out) + extra
         self.slowed += 1
         if t2 < need - 0.05:
@@ -430,11 +550,13 @@ class Writer:
                 self.left[layer.index] += len(w)
         for band in bands:
             for unit in band.order:
-                items = [[self.own_fans(p, unit[0], layer) for owner, p in w if owner == unit]
+                items = [[self.own(p, unit[0], layer) for owner, p in w if owner == unit]
                          for layer, w in zip(band.layers, band.work)]
                 parts = [[p for p in ps if p.tower is None] for ps in items]
-                first_layer = next((layer.index for layer, ps in zip(band.layers, parts) if ps), None)
-                self.change_tool(unit[0], None if first_layer is None else self.p.temp_at(unit[0], first_layer))
+                first_layer, first_path = next(((layer.index, ps[0]) for layer, ps in zip(band.layers, parts) if ps),
+                                               (None, None))
+                self.change_tool(unit[0], None if first_layer is None else self.p.temp_at(unit[0], first_layer),
+                                 first_path.state if first_path else ())
                 tool = unit[0]
                 # tower right after the swap; with tower_between only the wipe, walls and grid between layers
                 late = ("wall", "grid") if self.tower_between else ()
@@ -462,7 +584,7 @@ class Writer:
         for k in sorted(self.waiting):     # left over only if a layer never settled (nothing below it printed)
             self._outside(self.waiting.pop(k))
         if not self.retracted:
-            self.emit(f"G1 E-{_fmt(self.retract)} F{_fmt(self.retract_f)}")
+            self._plain_retract()
         self.lift(self.top + self.z_hop)
         if self.p.abs_e:
             self.emit("G92 E0")

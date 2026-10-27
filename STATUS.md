@@ -62,6 +62,134 @@ scope. Code, numbers and the research are parked in stash/nonplanar/ (NOTES.md).
   colour mixing with enable_mixed_color_sublayer (sub-layers at different Z inside one layer; whole-layer mixing is
   plain multicolour). Prime tower changed in 2.5: re-check the CP TOOLCHANGE / tower markers on a 2.5 file.
 
+## Improvement sheet (2026-10-26, branch refine-compat; Rusti3D method: baseline, hypothesis, measure)
+RESUME HERE (2026-10-27). Branch refine-compat (pushed 2026-10-26 up to fix 1). Done so far:
+1. Modules reorganized (model/parse/geometry/plan/staggered/writer/config/summary); outputs byte-identical.
+2. Tools: `tools/regress.py LABEL [files|--variants]` + `--diff A B`; `verify --fidelity` (state per mm + travels).
+   Test files (gitignored): samples/compat/ (user's 3MF, vegeta.gcode export), variants by
+   tools/make_variants.py (tools/variant.py edits the 3MF and slices with the Orca 2.5 CLI; keys must be
+   listed in different_settings_to_system, objects dropped via printable=0). Results in work/regress/<label>/.
+3. FIX 1 done: machine-state commands (PA, M220/M221, M205, M572, M566) stay with their paths; the incoming
+   filament's PA right after each swap; handed-over pieces take the printing filament's state per feature; tower
+   keeps the loaded PA. Measured (fidelity, PA on kept lines): filaments variant 255 m -> 0, adaptive_pa 310 m -> 0.
+   Reference files: swaps/times unchanged; cube/support byte-identical, others differ only by M220 placement.
+4. FIX 2 done: swap blocks per tool (filament end G-code before T for the tool left, start G-code after T for the
+   tool entered; first swap of each in the original). swap_blocks variant (M118 markers): wrong blocks 167 -> 0.
+5. FIX 3 done: firmware retraction (G10/G11 are retracts in the parser, the writer writes G10/G11 in such files,
+   not G1 E): fw_retract variant G1 E retracts 564 -> 0, G10/G11 balanced. Found with it: after every swap the old
+   writer never primed back (Orca: G1 E-.8 before T, G1 E.8 after); measured 0.8 mm x swaps left retracted (Stitch
+   145.6 mm). Now the next travel unretracts: left retracted at the end = the original's 0.80.
+6. FIX 4 done: a handed-over piece takes the printing filament's flow ratio and filament area for its E, and is slowed
+   to that filament's max volumetric speed. filaments variant: handed lines at the wrong flow 166 mm -> 0, over the
+   printing filament's volumetric limit 70.5 mm -> 0.
+8. FIX 5 done: each path keeps the slicer's way into it (retract, wipe, lift, travel route, G10/G11); the writer replays
+   it when the path follows the same line as in the slicer, with the same tool and state, and no taller plastic is
+   within reach of the route; else it regenerates. Restart extra (retract_restart_extra) added to regenerated primes.
+   Same-order starts arriving by another route: travel variant 3025 -> 242, Stitch 867 -> 150; the rest lift over
+   taller stacked plastic. Cost: Anycubic cube 62.9 -> 64.1 min, Stitch 292.0 -> 293.1 (user: worth it).
+   Full report: work/regress/f5.check (tools/check.py f5 --collisions / f5-v): 0 collisions (Stitch: the 2 known
+   late-support spots), PA / swap blocks / E balance all as the original.
+   Left: per-filament retraction on regenerated travels (filaments variant: T0 0.5 mm, writer uses 0.8); E written
+   with 5 decimals gives ~1% flow error on tiny arc segments (scarf_arcs 948 mm, old) - write 6.
+9. FIX 6 done: per-filament retraction overrides (Orca filament_extruder_override_keys, "nil" = printer's) for the
+   writer's own travels; after a swap the filament is primed back by the amount retracted (Orca does the same).
+   filaments variant: left retracted 0.50 -> 0.50 (= original; was 0.80). The ~1% flow error on arc chords is a
+   checker artifact (3-decimal X/Y on 0.05 mm chords), not a print defect; keeping G2/G3 would remove it.
+10. Printer guards: refuse more than one nozzle (nozzle_diameter count; covers multi-nozzle heads, IDEX/parallel,
+   toolchangers: Orca does not tell them apart in the file, is_imex is kept out of the G-code) and belt_printer=1.
+   tools/test_guards.py. Toolchangers can be allowed once a real toolchanger file is tested.
+11. Cooling: verify.cooling_fidelity (per spot, time before the next layer vs the original, below the filament's
+   minimum layer time = worse). tools/cooling_options.py compared the options; new defaults
+   respect_min_layer_time on (outer walls keep their sliced speed: 0 mm changed) + tower_between on; lift_wait off
+   (little gain, ooze). Cooled worse: cube1h43 2.8% -> 0.3%, Anycubic cube 9.8% -> 3.1%, variants 0.1-0.4%, Stitch
+   1.7%. Cost: cubes ~+2.5 min, Stitch 293 -> 299 min. Rest: spot order within a layer (Orca guarantees layer time,
+   not per-spot time). Fan speed-up timing: measured, no defect (no kept line gets a lower fan).
+   Report: work/regress/f7.check.txt.
+7. tools/check.py LABEL [--collisions]: one row per output (kept-line state diffs, wrong swap blocks, E balance,
+   arrivals = how each extrusion start is reached vs the original, same-order starts only).
+Baselines: base (5 reference files), base-v (variants), work/baseline/vegeta.* (1176 -> 1130 swaps, 325 s: low gain,
+look at it with the island items below). Scarf variant: Orca CLI wrote no Z ramps even with seam_slope_type=all,
+conditional=0 - get a GUI-exported scarf file from the user.
+12. Vegeta's low gain (1176 -> 1130): 742 band rejections were support refused to another filament. Vegeta's support
+   is Orca "Default" (support_filament 0 = "current filament is used", PrintConfig tooltip): printed by all 4
+   filaments. Program.free_support = (object, type) of support the slicer printed with more than one filament; only
+   that may be handed over (support always printed with one filament keeps it: Support test, TerrorCube).
+   Vegeta 1176 -> 888 swaps (was 1130), 29h46 -> 24h40. Reference files byte-identical. Quality report: clean except
+   24 late-support spots (work/regress/s1) - being compared with the same code without free support (s0).
+13. Island order: tried, parked in stash/islands/ (NOTES.md, islands.patch): cube1h43 41 -> 51 swaps, 12x slower.
+   What stops Vegeta's bands now: visible outer walls only (762 resting on the later colour, 246 nozzle hits);
+   ceiling with every resting case solved 570 swaps, but at 2-layer bands a split colour costs as many swaps.
+   s0 (same code, support kept): 1130 swaps, 4 late-support; s1 (free): 888, 24. So free support adds 20 spots:
+   shipped as stack.free_support. The extra spots are not support: outer walls at a seam between two colours,
+   resting half on each, printed before the lower colour (the known seam-straddle case, see Results); longer bands
+   make it more frequent (4 -> 24 samples of 0.2 mm, ~5 mm in a 29 h print, for 242 fewer swaps). User
+   2026-10-27: setting, default ON.
+14. Scarf seams (user's GUI export samples/compat/scarf_grid.gcode: seam_slope_type all, conditional off, grid
+   support, 13053 Z-changing extrusion segments): Path.zs (Z per point, z = top, z0 / z1); spiral_mode refused
+   explicitly; planner: per layer a KD tree of the later colour's ramp samples, checked with the ramp's deepest drop
+   (on the ramp's own layer too); split() cuts zs; writer writes Z on ramp segments, travels to the ramp start.
+   Result (free support on): 226 -> 187 swaps, 297 -> 256 min, 0 collisions, ramps kept (13068 segments). With the
+   default (free support off): 226 -> 217, 0 collisions - its Default grid support blocks the bands. Planned as if ramps were
+   flat: 117 swaps but 4248 collisions (the rule is needed). Ramp samples grouped by depth: no fewer swaps and 1
+   collision, reverted. Reference files byte-identical.
+15. Materials (user, 2026-10-27: "things that wouldn't stick together or don't make sense should not be combined";
+   support colour does not matter; interface keeps its filament only when one is chosen): nothing is handed between
+   filaments unless Orca's filament_type base (suffix dropped: PLA-CF = PLA; PETG and PCTG differ), filament_soluble
+   and filament_is_support all match (pipeline.materials). Free support covers base and interface printed with
+   Default. tools/test_materials.py: Stitch with T1 as PETG, 0 segments moved between PETG and PLA (191 swaps vs 181).
+   All-PLA files byte-identical.
+Priorities (user, 2026-10-27): Marlin low; Bambu AMS swaps later (large user base, must do), then Prusa MMU.
+NEXT: Vegeta's 20 extra late-support with free support (find the spots: verify.check on work/regress/s1); speed
+pass on large files (planning now the largest stage); island order needs a rethink (stash/islands).
+
+Compatibility / never worse quality (found in the audit, Orca 2.3.2 source + the user's files):
+- PA: Orca's per-filament SET_PRESSURE_ADVANCE after each swap (after `; CP TOOLCHANGE END`) is hoisted to the layer
+  start; adaptive PA per feature is hoisted too. Tool change extras are the first swap's for every swap.
+- Every mid-layer state command (M220/M221, M205 jerk, M572, G10/G11 firmware retraction) is hoisted to the layer start.
+- Handed-over pieces keep the original filament's flow ratio / diameter E, speed (max volumetric speed of the new
+  filament not checked), PA and retraction (temperature and fan already follow the printing tool).
+- Travels are all regenerated: avoid-crossing-walls routes, slope/spiral lift, wipe on loops, restart extra lost.
+  Retraction / hop from filament 0 only.
+- Fan speed-up time (Orca FanMover): a reordered overhang gets its fan late.
+- Cooling: stacked regions either uncooled (default) or outer walls slowed (speed-contrast lines);
+  dont_slow_down_outer_wall ignored.
+- Scarf seams (Z-changing extrusion) refused.
+- Measuring tool: `colorstack.verify --fidelity` (per extruded mm: tool, type, speed, flow, PA, fans, temperature,
+  accel, M220/M221 against the original; extrusion starts per feature).
+Target (user, 2026-10-27): a native OrcaSlicer slicing mode (not a plugin), maybe an upstream PR; this Python
+version is the reference implementation and test bench. Follow the slicer's settings even at a small time cost.
+Printer types to check (user, 2026-10-27), each with an Orca CLI variant from a system printer profile:
+- single nozzle + filament changer (AMS / ACE / MMU): what we test today;
+- toolchangers (e.g. Prusa XL, Snapmaker U1): a tool change is seconds, no purge; parked tools are off the bed;
+- IDEX (e.g. Sovol SV04, Snapmaker J1) and copy/mirror modes: second carriage parked or printing in parallel;
+- multi-nozzle on one carriage (Bambu H2D, filament_map): REFUSE (user, 2026-10-27: too hard to account for the
+  idle nozzle riding next to the active one).
+- toolchangers / multiple toolheads: allow (little time saved, but no harm) once the file is handled correctly.
+- belt printers (new in recent Orca): layers are tilted in machine coordinates, the vertical-cone nozzle model does
+  not hold; refuse unless modelled. Detection keys to be read from Orca's source, not guessed.
+For each: what a swap costs (the gain), whether the nozzle model holds, and what the file's tool change looks like.
+Speed (user, 2026-10-27: must be quick on large many-colour models, without losing quality). Rule: every speed
+change proves byte-identical output (tools/regress.py --diff) unless it is a measured, deliberate trade-off.
+Profile, Stitch (153 s, machine busy): densify 50 s (per-segment numpy calls), estimate 37 s (reader regexes 22 s,
+motion model 13 s), writer 41 s (height map 30 s = densify again), KD queries 22 s. Plan, in order:
+1. DONE densify vectorised per path: bit-identical samples; Stitch 58.2 -> 43.4 s (same machine, old vs new).
+2. DONE (small) reader / settings: cheap prefix tests before the layer and setting regexes (read 1.97 -> 1.67 s).
+3. DONE plan variants (per-object on/off, staggered) in parallel processes; the original timed meanwhile; falls back
+   to one after another if worker processes cannot start (embedded hosts). Outputs byte-identical (regress p1 vs p2,
+   CLI, threaded app path, forced fallback). Stitch 43 -> 24 s, Vegeta 184 -> 114 s (325 s this morning).
+5. 2026-10-27, measured and NOT kept (each identical output, no gain): skip KD queries by bounding box (trees span the
+   whole layer, boxes always overlap: 143 -> 141 s), tighter query radius (138 s, noise), hand-written word parser +
+   precomputed move length (reader 7.6 -> 9.1 s, slower: the C regex wins). Kept: per-band answer cache
+   (b15461f). Vegeta per variant (machine loaded): plan ~50 s, write ~41 s, estimate ~30 s, send back 3 s; parse
+   20 s. What is left is spread out; big further gains need native code (the Orca C++ integration).
+4. Next hotspots (tools/stage_times.py, profile): planning (KD queries ~15 s profiled on Stitch), estimate of
+   each output (reader + motion model), parse 16 s on Vegeta.
+Planning (from the user, 2026-10-26):
+- Island print order: colour 1 has islands with an overhang that colour 2 would have to print under (collision),
+  same with colour 1 and 2 islands that both overhang. Optimise the order of these islands.
+- Per-island printing: print one island's whole colour stack, then travel to the next island's stack (print the
+  block before travelling), like per-object batching but per connected island.
+
 ## Open
 - Diagonal cube print (2026-10-16): faint lines at every colour change = speed contrast. With respect_min_layer_time
   on, stacked layers' outer walls ran ~31 mm/s, the layers at each swap at the sliced 130 mm/s (seen in the viewer's

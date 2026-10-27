@@ -6,112 +6,26 @@ the processor does not understand stay with their layer, in order.
 import math
 import re
 from collections import Counter
-from dataclasses import dataclass, field
 
+from .model import NEUTRAL_TYPES, Layer, Path, Program, first_setting
 from .reader import load, read
-
-VISIBLE_TYPES = {"Outer wall", "Overhang wall", "Top surface", "Bottom surface", "Ironing"}
-NEUTRAL_TYPES = {"Prime tower"}  # printed by whichever tool is loaded
 
 # recomputed or meaningless after reordering
 DROP = {"G92", "M73", "SET_PRINT_STATS_INFO", "G17", "M117", "SET_VELOCITY_LIMIT", "M204", "M82", "M83",
         "G90", "G91"}
+
 TEMPS = {"M104", "M109", "M140", "M190", "M141", "M191"}
-# pause / filament change: everything below must be printed first, nothing above, so no band crosses the layer
-BARRIERS = {"M600", "M601", "M0", "M1", "M25", "M125", "PAUSE"}
+# machine state the slicer sets between features (Orca: per-filament and adaptive pressure advance): kept with each path
+STATE = {"SET_PRESSURE_ADVANCE", "M900", "M572", "M220", "M221", "M205", "M566"}
 
 
-@dataclass
-class Path:
-    tool: int | None          # None = prime tower
-    type: str
-    width: float
-    z: float
-    pts: list                 # [(x, y), ...], one more than segments
-    e: list                   # filament mm per segment
-    f: list                   # mm/min per segment
-    accel: float | None
-    fans: dict                # {"": S, "P2": S, ...} as set before the path
-    obj: str | None           # EXCLUDE_OBJECT name
-    seq: int = 0              # index in the slicer's path order
-    retract_before: bool = True
-    hop_before: bool = True
-    head: bool = True         # starts where the slicer's path started (False for a later piece of a split)
-    tail: bool = True
-    tower: str | None = None  # prime tower part: "wipe", "grid" or "wall"
-    block: int = -1           # wipe block number (one per tool change)
-    scv: float | None = None  # Klipper square corner velocity set before the path
-    temp: float | None = None  # nozzle temperature the slicer printed it at
-    vlim: tuple = ()          # other SET_VELOCITY_LIMIT parameters in force, ((name, value), ...)
-    height: float | None = None   # line height the slicer wrote for it (;HEIGHT: after ;TYPE:), None = the layer's
-
-    @property
-    def visible(self):
-        return self.type in VISIBLE_TYPES
-
-    def length(self):
-        return sum(math.dist(self.pts[k], self.pts[k + 1]) for k in range(len(self.e)))
-
-
-@dataclass
-class Layer:
-    index: int
-    z: float
-    height: float
-    paths: list = field(default_factory=list)
-    cmds: list = field(default_factory=list)   # emitted at the layer's start
-
-    @property
-    def barrier(self):
-        return any(c.split()[0].upper() in BARRIERS for c in self.cmds)
-
-
-@dataclass
-class Program:
-    settings: dict            # the slicer's "; key = value" config block
-    preamble: list
-    postamble: list
-    layers: list
-    first_tool: int
-    toolchange_extra: list    # what the slicer emits around a tool change (filament start/end G-code)
-    header: list
-    tool_format: str = "T{n}"     # the file's own tool change line, {purge} for PURGE_LENGTH
-    abs_e: bool = False           # start G-code leaves M82
-    stats_info: bool = False      # file uses SET_PRINT_STATS_INFO
-    accel_format: str = "SET_VELOCITY_LIMIT ACCEL={a}"
-    first_temp: float | None = None   # nozzle temperature when the layers start
-    temps: dict = field(default_factory=dict)    # tool -> nozzle temperature per layer index (see temp_at)
-    fans: dict = field(default_factory=dict)     # (tool, layer index, type) -> fans the slicer set for it
-    travel: dict = field(default_factory=dict)   # retract, retract_f, deretract_f, z_hop, travel_f, min_travel
-    unknown: Counter = field(default_factory=Counter)
-
-    def temp_at(self, tool, index):
-        """Nozzle temperature for tool printing layer index: what the slicer printed that tool at there (a layer
-        the tool had nothing on takes the nearest one below, else above). None if unknown."""
-        col = self.temps.get(tool)
-        return col[index] if col else None
-
-    def setting_list(self, key, cast=float, default=None):
-        if key not in self.settings:
-            return default
-        try:
-            return [cast(v) for v in self.settings[key].split(",")]
-        except ValueError:
-            return default
-
-
-def first_setting(settings, key, default):
-    """First value of a per-filament / per-mode setting."""
-    try:
-        return float(settings[key].split(",")[0])
-    except (KeyError, ValueError):
-        return default
+SETTING_RE = re.compile(r"^;\s*(\w+)\s*=\s*(.*)$")
 
 
 def _parse_settings(lines):
     out = {}
     for ln in lines:
-        m = re.match(r"^;\s*(\w+)\s*=\s*(.*)$", ln)
+        m = ln.startswith(";") and "=" in ln and SETTING_RE.match(ln)
         if m:
             out.setdefault(m.group(1), m.group(2).strip())
     return out
@@ -140,7 +54,8 @@ def parse(path_in):
     preamble = lines[:first_layer]
     postamble = lines[end:]
 
-    prog = Program(settings, preamble, postamble, [], 0, [], header)
+    prog = Program(settings, preamble, postamble, [], 0, header)
+    _check_printer(prog)
     tool = 0
     fmt_set = accel_seen = False
     prog.stats_info = any(ln.startswith("SET_PRINT_STATS_INFO") for ln in lines)
@@ -156,13 +71,17 @@ def parse(path_in):
     initial = prog.setting_list("nozzle_temperature_initial_layer") or prog.setting_list("first_layer_temperature")
     temp = initial[min(pre_tools[-1] if pre_tools else 0, len(initial) - 1)] if initial else None
     fans = {}
+    state = {}         # key -> line, see _state_key
+    lead = []          # moves and lines since the last extrusion, for the next path
+    zs = []            # Z per point of the open path
     path = None
     seq = 0
     retracted = hopped = False
     in_toolchange = False
-    tc_lines, toolchange_extra = [], None
+    tc_lines, tc_split, tc_from = [], None, None    # the swap block's lines, where its T line was, the tool left
     tower_sec, block = "wall", -1
     retracts, deretracts, hops, travels = [], [], [], []
+    firmware = False
 
     def new_layer():
         nonlocal cur
@@ -172,6 +91,8 @@ def parse(path_in):
     def close():
         nonlocal path, seq, retracted, hopped
         if path is not None and path.e:
+            if max(zs) - min(zs) > 1e-6:      # a scarf seam ramp: Z per point, z the top
+                path.zs, path.z = tuple(zs), max(zs)
             cur.paths.append(path)
             seq += 1
             retracted = hopped = False
@@ -193,20 +114,23 @@ def parse(path_in):
                 new_layer()
             if m.xy < 1e-9 and m.de == 0 and abs(m.z1 - m.z0) < 1e-9:
                 continue       # feedrate-only line
-            if m.de > 0 and m.xy > 1e-9 and abs(m.z1 - m.z0) >= 1e-9:
-                raise ValueError(f"line {i + 1} extrudes while changing Z (spiral vase?): not supported")
-            if m.de > 0 and m.xy > 1e-9 and abs(m.z1 - m.z0) < 1e-9:
+            if m.de > 0 and m.xy > 1e-9:
                 if path is None:
                     tl = None if typ in NEUTRAL_TYPES else tool
                     path = Path(tl, typ, width, m.z1, [(m.x0, m.y0)], [], [], accel, dict(fans), obj,
-                                seq, retracted, hopped, scv=scv, temp=temp, vlim=vlim, height=height)
+                                seq, retracted, hopped, scv=scv, temp=temp, vlim=vlim, height=height,
+                                state=tuple(sorted(state.items())), lead=tuple(lead))
+                    lead = []
+                    zs = [m.z0]
                     if typ in NEUTRAL_TYPES:
                         path.tower, path.block = tower_sec, block if tower_sec == "wipe" else -1
                 path.pts.append((m.x1, m.y1))
                 path.e.append(m.de)
                 path.f.append(m.f)
+                zs.append(m.z1)
             else:
                 close()        # travel, Z move, retract or deretract
+                lead.append(("move", m.x1, m.y1, m.z1, m.de, m.f))
                 if m.de < 0:
                     retracted = True
                     if m.xy < 1e-9:
@@ -230,6 +154,8 @@ def parse(path_in):
                     fmt_set = True
             else:
                 prog.first_tool = n
+            if in_toolchange:
+                tc_split, tc_from = len(tc_lines), tool
             tool = n
             continue
         if kind == "accel":
@@ -271,12 +197,15 @@ def parse(path_in):
             close()
             width = val
         elif kind == "comment":
-            if val.startswith("; CP TOOLCHANGE UNLOAD"):
-                in_toolchange, tc_lines = True, []
+            if val.startswith(";WIPE_START") or val.startswith(";WIPE_END"):
+                lead.append(("line", val))
+            elif val.startswith("; CP TOOLCHANGE UNLOAD"):
+                in_toolchange, tc_lines, tc_split = True, [], None
             elif val.startswith("; CP TOOLCHANGE WIPE"):
                 in_toolchange = False
-                if toolchange_extra is None:
-                    toolchange_extra = tc_lines
+                if tc_split is not None:    # filament end G-code before T, the next filament's start G-code after
+                    prog.toolchange_end.setdefault(tc_from, tc_lines[:tc_split])
+                    prog.toolchange_start.setdefault(tool, tc_lines[tc_split:])
                 close()
                 block += 1
                 tower_sec = "wipe"
@@ -305,12 +234,20 @@ def parse(path_in):
             elif w in TEMPS:
                 close()
                 cur.cmds.append(val)
+            elif w in STATE:
+                close()
+                state[_state_key(w, val)] = val
             elif w == "SET_VELOCITY_LIMIT" and (extra := {k.upper(): v for k, v in re.findall(r"(\w+)=(\S+)", val)
                                                           if k.upper() not in ("ACCEL", "SQUARE_CORNER_VELOCITY")}):
                 close()
                 vlim = tuple(sorted({**dict(vlim), **extra}.items()))
             elif w in DROP:
                 pass
+            elif w in ("G10", "G11"):      # firmware retraction: a retract / unretract like any other
+                close()
+                retracted = w == "G10"
+                firmware = True
+                lead.append(("line", w))
             elif in_toolchange:
                 tc_lines.append(val)
             elif w not in ("G4", "M400"):
@@ -318,7 +255,6 @@ def parse(path_in):
                 cur.cmds.append(val)
                 prog.unknown[w] += 1
     close()
-    prog.toolchange_extra = toolchange_extra or []
     prog.first_temp = next((p.temp for L in layers for p in L.paths), None)
 
     # layer Z / height when the slicer did not say
@@ -333,10 +269,19 @@ def parse(path_in):
     for k, L in enumerate(layers):
         L.index = k
     prog.layers = layers
+    support_tools = {}
+    for L in layers:
+        for p in L.paths:
+            if p.tool is not None and p.type.startswith("Support"):
+                support_tools.setdefault((p.obj, p.type), set()).add(p.tool)
+    prog.free_support = frozenset(k for k, tools in support_tools.items() if len(tools) > 1)
     for L in layers:
         for p in L.paths:
             if p.tool is not None:
                 prog.fans.setdefault((p.tool, L.index, p.type), p.fans)
+                rows = prog.states.setdefault((p.tool, p.type), [])
+                if not rows or rows[-1][0] != L.index:
+                    rows.append((L.index, p.state))
     for t in {p.tool for L in layers for p in L.paths if p.tool is not None}:
         col = [next((p.temp for p in L.paths if p.tool == t and p.temp is not None), None) for L in layers]
         for order in (range(len(col)), range(len(col) - 1, -1, -1)):     # fill from below, then from above
@@ -366,8 +311,32 @@ def parse(path_in):
         "z_hop": first_setting(settings, "z_hop", common(hops, 0.4)),
         "travel_f": first_setting(settings, "travel_speed", common(travels, 9000.0) / 60) * 60,
         "min_travel": first_setting(settings, "retraction_minimum_travel", 1.0),
+        "firmware": firmware or first_setting(settings, "use_firmware_retraction", 0) == 1,
+        "restart_extra": first_setting(settings, "retract_restart_extra", 0.0),     # extra primed after a retract
     }
     return prog
+
+
+def _check_printer(prog):
+    """Refuse printers the nozzle model does not cover (Orca's own settings, PrintConfig.cpp): more than one nozzle
+    (multi-nozzle heads, IDEX / parallel printing, toolchangers: Orca marks none of them apart in the file, and an
+    idle nozzle beside the active one is not modelled) and belt printers (tilted layers)."""
+    nozzles = prog.setting_list("nozzle_diameter", default=[])
+    if len(nozzles) > 1:
+        raise ValueError(f"the printer has {len(nozzles)} nozzles; ColorStack supports one nozzle with a filament "
+                         "changer only")
+    if first_setting(prog.settings, "belt_printer", 0) == 1:
+        raise ValueError("belt printers are not supported (tilted layers)")
+    if first_setting(prog.settings, "spiral_mode", 0) == 1:
+        raise ValueError("spiral vase mode is not supported")
+
+
+def _state_key(word, line):
+    """What a state command sets: its word and parameter names (SET_PRESSURE_ADVANCE ADVANCE= and SMOOTH_TIME= are
+    separate settings)."""
+    code = line.split(";")[0]
+    names = re.findall(r"\b([A-Za-z_]+)\s*=", code) + re.findall(r"\s([A-Za-z])-?\.?\d", code)
+    return word, tuple(sorted({n.upper() for n in names}))
 
 
 def _temp(cmd, tool, current):
