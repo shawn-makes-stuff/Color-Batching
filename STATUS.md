@@ -132,6 +132,12 @@ conditional=0 - get a GUI-exported scarf file from the user.
    default (free support off): 226 -> 217, 0 collisions - its Default grid support blocks the bands. Planned as if ramps were
    flat: 117 swaps but 4248 collisions (the rule is needed). Ramp samples grouped by depth: no fewer swaps and 1
    collision, reverted. Reference files byte-identical.
+15. Materials (user, 2026-10-27: "things that wouldn't stick together or don't make sense should not be combined";
+   support colour does not matter; interface keeps its filament only when one is chosen): nothing is handed between
+   filaments unless Orca's filament_type base (suffix dropped: PLA-CF = PLA; PETG and PCTG differ), filament_soluble
+   and filament_is_support all match (pipeline.materials). Free support covers base and interface printed with
+   Default. tools/test_materials.py: Stitch with T1 as PETG, 0 segments moved between PETG and PLA (191 swaps vs 181).
+   All-PLA files byte-identical.
 Priorities (user, 2026-10-27): Marlin low; Bambu AMS swaps later (large user base, must do), then Prusa MMU.
 NEXT: Vegeta's 20 extra late-support with free support (find the spots: verify.check on work/regress/s1); speed
 pass on large files (planning now the largest stage); island order needs a rethink (stash/islands).

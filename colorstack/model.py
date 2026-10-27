@@ -89,8 +89,9 @@ class Program:
     unknown: Counter = field(default_factory=Counter)
     # what the slicer writes in a swap: tool -> lines before T when leaving it (filament end G-code), lines after T
     # when entering it (filament start G-code); the first swap of each
-    # (object, type) of support printed with whatever filament was loaded (Orca support_filament "Default": the slicer
-    # printed it with several filaments); support always printed with one filament keeps it
+    # (object, type) of support (base or interface) printed with whatever filament was loaded (Orca support_filament /
+    # support_interface_filament "Default": the slicer printed it with several filaments); support always printed with
+    # one filament keeps it
     free_support: frozenset = frozenset()
     toolchange_end: dict = field(default_factory=dict)
     toolchange_start: dict = field(default_factory=dict)

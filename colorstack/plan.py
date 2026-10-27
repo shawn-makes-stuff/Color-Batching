@@ -20,6 +20,7 @@ class Options:
     min_piece: float = 2.0
     per_object: bool = True
     free_support: frozenset = frozenset()   # (object, type) of support the slicer gave no filament (Program)
+    materials: tuple = ()      # per tool (base material, soluble, support material): nothing is handed between two
 
 
 @dataclass
@@ -45,6 +46,10 @@ def unit_of(p, per_object):
     return (p.tool, p.obj if per_object else None)
 
 DONE = ("done", None)     # owner of material already printed
+
+
+def _material(opts, tool):
+    return opts.materials[min(tool, len(opts.materials) - 1)] if opts.materials else None
 
 
 def plan_band(layers, order, samples, nozzle, opts, work=None, starts=None):
@@ -120,6 +125,8 @@ def plan_band(layers, order, samples, nozzle, opts, work=None, starts=None):
                     new_work.append((owner, p))
                     new_origin.append(first_owner)
                     continue
+                if owner[0] != T[0] and _material(opts, owner[0]) != _material(opts, T[0]):
+                    return None     # never hand plastic to a material it would not bond like (pipeline.materials)
                 if p.type.startswith("Support") and owner[0] != T[0] and (p.obj, p.type) not in opts.free_support:
                     return None     # support keeps the filament chosen for it (interface material is chosen on purpose)
                 vis =np.full(len(pts), p.visible)

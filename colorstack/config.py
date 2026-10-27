@@ -90,8 +90,8 @@ HELP = {
     "stack.staggered": ("Staggered colours", "", "Each colour on its own schedule: fewer swaps where 3+ colours "
                         "share layers. Both ways are planned, the faster kept. Slower processing on those files."),
     "stack.free_support": ("Free support filament", "", "Support the slicer printed with whatever filament was loaded "
-                           "(support filament 'Default') may be printed by another filament, so it stacks. "
-                           "Support with a chosen filament keeps it."),
+                           "(support filament 'Default') may be printed by another filament of the same material, so "
+                           "it stacks. Support (or interface) with a chosen filament keeps it."),
     "stack.resolution": ("Resolution", "mm", "Sampling step for the collision planning."),
     "cooling.respect_min_layer_time": ("Respect minimum layer time", "", "Slow regions printed again straight on top "
                                        "of themselves down to the minimum layer time, as the slicer does. Outer walls "

@@ -18,6 +18,20 @@ PLAN_WEIGHT = {False: 22.0, True: 41.0}   # relative cost of a banded / staggere
 WRITE_WEIGHT = 3.0                         # write + time one plan
 
 
+def materials(prog):
+    """Per tool: (base material, soluble, support material). Free support moves only between filaments where all three
+    match, so nothing goes where it would not bond like the original: the base material is Orca's filament_type
+    without its suffix (PLA, PLA-CF and PLA-AERO are PLA; PETG and PCTG differ), and soluble (PVA, BVOH) or support
+    filaments never mix with model filament (filament_soluble, filament_is_support)."""
+    types = [t.strip().upper().split("-")[0] for t in prog.settings.get("filament_type", "").split(";")]
+    soluble = prog.setting_list("filament_soluble", int, [0])
+    support = prog.setting_list("filament_is_support", int, [0])
+
+    def at(values, k):
+        return values[min(k, len(values) - 1)]
+    return tuple((t, at(soluble, k), at(support, k)) for k, t in enumerate(types))
+
+
 def _progress_span(report, a, b):
     """A progress callback for one variant, mapped onto [a, b] of the whole run."""
     def planned(f, stage):
@@ -30,7 +44,8 @@ def _variant(prog, nozzle, cfg, lim, staggered, per_object, progress=None):
     report = progress or (lambda fraction, stage: None)
     st, co, nz = cfg["stack"], cfg["cooling"], cfg["nozzle"]
     opts = Options(int(st["max_band_layers"]), st["surface_tolerance"], st["resolution"], st["min_piece"],
-                   per_object, prog.free_support if st["free_support"] else frozenset())
+                   per_object, prog.free_support if st["free_support"] else frozenset(),
+                   materials(prog))
     split = PLAN_WEIGHT[staggered] / (PLAN_WEIGHT[staggered] + WRITE_WEIGHT)
     stage = "Planning staggered colours" if staggered else "Planning colour bands"
     if staggered:
