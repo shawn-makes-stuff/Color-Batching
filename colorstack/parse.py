@@ -19,10 +19,13 @@ TEMPS = {"M104", "M109", "M140", "M190", "M141", "M191"}
 STATE = {"SET_PRESSURE_ADVANCE", "M900", "M572", "M220", "M221", "M205", "M566"}
 
 
+SETTING_RE = re.compile(r"^;\s*(\w+)\s*=\s*(.*)$")
+
+
 def _parse_settings(lines):
     out = {}
     for ln in lines:
-        m = re.match(r"^;\s*(\w+)\s*=\s*(.*)$", ln)
+        m = ln.startswith(";") and "=" in ln and SETTING_RE.match(ln)
         if m:
             out.setdefault(m.group(1), m.group(2).strip())
     return out

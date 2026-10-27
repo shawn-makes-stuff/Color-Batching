@@ -1,4 +1,6 @@
 """Entry point for the CLI and the app: settings in, processed file + summary out."""
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures.process import BrokenProcessPool
 from pathlib import Path
 
 from .estimate import anchor, estimate, file_estimate, machine_limits, swap_each
@@ -16,70 +18,40 @@ PLAN_WEIGHT = {False: 22.0, True: 41.0}   # relative cost of a banded / staggere
 WRITE_WEIGHT = 3.0                         # write + time one plan
 
 
-def run(input_path, output_path, cfg, progress=None):
-    """Process input_path into output_path. Returns a JSON-able summary. progress(fraction, stage) as it goes,
-    the fraction weighted by what each stage costs on a 4-colour file."""
-    report = progress or (lambda fraction, stage: None)
-    nz, st = cfg["nozzle"], cfg["stack"]
-    nozzle = Nozzle(nz["tip_diameter"] / 2, nz["cone_angle"], nz["clear_height"], nz["contact"])
-    report(0.0, "Reading the file")
-    prog = parse(input_path)
-    lim = machine_limits(prog.settings, cfg["printer"])
-    original = load(input_path)
-    report(0.05, "Timing the original")
-    o = estimate(original, lim)
-    slicer = file_estimate(original)
-    each, _ = swap_each(o, slicer, lim)
-    co = cfg["cooling"]
-    # plan every way asked for that can differ, keep the fastest (swaps included). Per-object units are the
-    # tools themselves when no tool spans two objects; staggering gains nothing with at most two colours a layer.
-    tooled = [p for L in prog.layers for p in L.paths if p.tool is not None]
-    split_objects = len({(p.tool, p.obj) for p in tooled}) > len({p.tool for p in tooled})
-    many_colours = any(len({p.tool for p in L.paths if p.tool is not None}) > 2 for L in prog.layers)
-    variants = [(s, po) for s in ([False, True] if st["staggered"] and many_colours else [False])
-                for po in ([False, True] if st["per_object"] and split_objects else [False])]
-    total_w = sum(PLAN_WEIGHT[s] + WRITE_WEIGHT for s, _ in variants)
-    at = 0.1
-    best = None
-    for staggered, per_object in variants:
-        opts = Options(int(st["max_band_layers"]), st["surface_tolerance"], st["resolution"], st["min_piece"],
-                       per_object)
-        span = 0.87 * PLAN_WEIGHT[staggered] / total_w
-        stage = "Planning staggered colours" if staggered else "Planning colour bands"
+def _progress_span(report, a, b):
+    """A progress callback for one variant, mapped onto [a, b] of the whole run."""
+    def planned(f, stage):
+        report(a + (b - a) * f, stage)
+    return planned
 
-        def planned(f, a=at, s=span, name=stage):
-            report(a + s * f, name)
-        if staggered:
-            bands, wipes = plan_staggered(prog, nozzle, opts, planned)
-        else:
-            bands = plan(prog, nozzle, opts, planned)
-            wipes = compensate(prog, bands)
-        at += span
-        report(at, "Writing and timing")
-        notes = [f"COLORSTACK bands={len(bands)} multi_tool_bands={sum(len(b.tools) > 1 for b in bands)} "
-                 f"staggered={staggered}",
-                 f"COLORSTACK ceded_mm={sum(b.ceded_mm for b in bands):.1f} "
-                 f"visible_ceded_mm={sum(b.visible_ceded_mm for b in bands):.1f}",
-                 f"COLORSTACK nozzle tip_diameter={nz['tip_diameter']} cone_angle={nz['cone_angle']} "
-                 f"clear_height={nz['clear_height']} contact={nz['contact']}"]
-        writer = Writer(prog, nozzle, cfg["swap"]["lift"], co["stacked_fan"], co["lift_wait"], co["min_layer_time"],
-                        co["tower_between"], co["respect_min_layer_time"])
-        lines = writer.write(bands, notes)
-        steps = []
-        est = estimate(lines, lim, steps)
-        at += 0.87 * WRITE_WEIGHT / total_w
-        total = est["motion_s"] + est["dwell_s"] + est["swaps"] * each
-        if best is None or total < best[0]:
-            best = (total, est, steps, lines, per_object, staggered, bands, wipes, writer)
-    report(0.97, "Saving")
-    _, p, steps, lines, per_object, staggered, bands, (wipes_kept, wipes_gridded), writer = best
-    anchor(o, p, slicer, lim)
-    lines = stamp_progress(lines, steps, p["swap_each_s"], p["total_s"])
-    stamp_header(lines, o, p)
-    Path(output_path).write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return {
-        "original": o,
-        "processed": p,
+
+def _variant(prog, nozzle, cfg, lim, staggered, per_object, progress=None):
+    """Plan, write and time one way of printing prog (runs in a worker process when there are several)."""
+    report = progress or (lambda fraction, stage: None)
+    st, co, nz = cfg["stack"], cfg["cooling"], cfg["nozzle"]
+    opts = Options(int(st["max_band_layers"]), st["surface_tolerance"], st["resolution"], st["min_piece"],
+                   per_object)
+    split = PLAN_WEIGHT[staggered] / (PLAN_WEIGHT[staggered] + WRITE_WEIGHT)
+    stage = "Planning staggered colours" if staggered else "Planning colour bands"
+    if staggered:
+        bands, wipes = plan_staggered(prog, nozzle, opts, lambda f: report(split * f, stage))
+    else:
+        bands = plan(prog, nozzle, opts, lambda f: report(split * f, stage))
+        wipes = compensate(prog, bands)
+    report(split, "Writing and timing")
+    notes = [f"COLORSTACK bands={len(bands)} multi_tool_bands={sum(len(b.tools) > 1 for b in bands)} "
+             f"staggered={staggered}",
+             f"COLORSTACK ceded_mm={sum(b.ceded_mm for b in bands):.1f} "
+             f"visible_ceded_mm={sum(b.visible_ceded_mm for b in bands):.1f}",
+             f"COLORSTACK nozzle tip_diameter={nz['tip_diameter']} cone_angle={nz['cone_angle']} "
+             f"clear_height={nz['clear_height']} contact={nz['contact']}"]
+    writer = Writer(prog, nozzle, cfg["swap"]["lift"], co["stacked_fan"], co["lift_wait"], co["min_layer_time"],
+                    co["tower_between"], co["respect_min_layer_time"])
+    lines = writer.write(bands, notes)
+    steps = []
+    est = estimate(lines, lim, steps)
+    report(1.0, "Writing and timing")
+    return {"est": est, "steps": steps, "lines": lines, "summary": {
         "bands": len(bands),
         "ceded_mm": sum(b.ceded_mm for b in bands),
         "visible_ceded_mm": sum(b.visible_ceded_mm for b in bands),
@@ -91,7 +63,66 @@ def run(input_path, output_path, cfg, progress=None):
         "cooled_short": writer.short,
         "fanned_paths": writer.fanned,
         "waits": writer.waited,
-        "tower_wipes_kept": wipes_kept,
-        "tower_wipes_to_grid": wipes_gridded,
+        "tower_wipes_kept": wipes[0],
+        "tower_wipes_to_grid": wipes[1],
+    }}
+
+
+def run(input_path, output_path, cfg, progress=None):
+    """Process input_path into output_path. Returns a JSON-able summary. progress(fraction, stage) as it goes,
+    the fraction weighted by what each stage costs on a 4-colour file."""
+    report = progress or (lambda fraction, stage: None)
+    nz, st = cfg["nozzle"], cfg["stack"]
+    nozzle = Nozzle(nz["tip_diameter"] / 2, nz["cone_angle"], nz["clear_height"], nz["contact"])
+    report(0.0, "Reading the file")
+    prog = parse(input_path)
+    lim = machine_limits(prog.settings, cfg["printer"])
+    original = load(input_path)
+    # plan every way asked for that can differ, keep the fastest (swaps included). Per-object units are the
+    # tools themselves when no tool spans two objects; staggering gains nothing with at most two colours a layer.
+    tooled = [p for L in prog.layers for p in L.paths if p.tool is not None]
+    split_objects = len({(p.tool, p.obj) for p in tooled}) > len({p.tool for p in tooled})
+    many_colours = any(len({p.tool for p in L.paths if p.tool is not None}) > 2 for L in prog.layers)
+    variants = [(s, po) for s in ([False, True] if st["staggered"] and many_colours else [False])
+                for po in ([False, True] if st["per_object"] and split_objects else [False])]
+    if len(variants) == 1:
+        report(0.05, "Timing the original")
+        o = estimate(original, lim)
+        results = [_variant(prog, nozzle, cfg, lim, *variants[0], _progress_span(report, 0.1, 0.97))]
+    else:
+        # the variants do not depend on each other: one process each, the original timed meanwhile
+        report(0.05, "Planning colour bands")
+        try:
+            with ProcessPoolExecutor(max_workers=len(variants)) as pool:
+                jobs = [pool.submit(_variant, prog, nozzle, cfg, lim, s, po) for s, po in variants]
+                o = estimate(original, lim)
+                done = 0
+                for _ in as_completed(jobs):
+                    done += 1
+                    report(0.1 + 0.87 * done / len(jobs), "Planning colour bands")
+                results = [j.result() for j in jobs]
+        except BrokenProcessPool:       # a host that cannot start worker processes: one after another
+            o = estimate(original, lim)
+            results = [_variant(prog, nozzle, cfg, lim, s, po, _progress_span(report, 0.1 + 0.87 * k / len(variants),
+                                                                           0.1 + 0.87 * (k + 1) / len(variants)))
+                       for k, (s, po) in enumerate(variants)]
+    slicer = file_estimate(original)
+    each, _ = swap_each(o, slicer, lim)
+    best = None
+    for r in results:          # in variant order: the first of equally fast plans wins, as before
+        total = r["est"]["motion_s"] + r["est"]["dwell_s"] + r["est"]["swaps"] * each
+        if best is None or total < best[0]:
+            best = (total, r)
+    report(0.97, "Saving")
+    r = best[1]
+    p, steps, lines = r["est"], r["steps"], r["lines"]
+    anchor(o, p, slicer, lim)
+    lines = stamp_progress(lines, steps, p["swap_each_s"], p["total_s"])
+    stamp_header(lines, o, p)
+    Path(output_path).write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return {
+        "original": o,
+        "processed": p,
+        **r["summary"],
         "output": str(output_path),
     }

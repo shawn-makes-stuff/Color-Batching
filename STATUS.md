@@ -142,10 +142,13 @@ Speed (user, 2026-10-27: must be quick on large many-colour models, without losi
 change proves byte-identical output (tools/regress.py --diff) unless it is a measured, deliberate trade-off.
 Profile, Stitch (153 s, machine busy): densify 50 s (per-segment numpy calls), estimate 37 s (reader regexes 22 s,
 motion model 13 s), writer 41 s (height map 30 s = densify again), KD queries 22 s. Plan, in order:
-1. densify vectorised per path (done 2026-10-27, bit-identical samples on all cube1h43 paths; timing pending);
-2. reader: one compiled pattern per line instead of several regex passes;
-3. plan the variants (per-object on/off, staggered) in parallel processes;
-4. profile again, next hotspot. Vegeta (325 s, 79 MB) is the large-file benchmark.
+1. DONE densify vectorised per path: bit-identical samples; Stitch 58.2 -> 43.4 s (same machine, old vs new).
+2. DONE (small) reader / settings: cheap prefix tests before the layer and setting regexes (read 1.97 -> 1.67 s).
+3. DONE plan variants (per-object on/off, staggered) in parallel processes; the original timed meanwhile; falls back
+   to one after another if worker processes cannot start (embedded hosts). Outputs byte-identical (regress p1 vs p2,
+   CLI, threaded app path, forced fallback). Stitch 43 -> 24 s, Vegeta 184 -> 114 s (325 s this morning).
+4. Next hotspots (tools/stage_times.py, profile): planning (KD queries ~15 s profiled on Stitch), estimate of
+   each output (reader + motion model), parse 16 s on Vegeta.
 Planning (from the user, 2026-10-26):
 - Island print order: colour 1 has islands with an overhang that colour 2 would have to print under (collision),
   same with colour 1 and 2 islands that both overhang. Optimise the order of these islands.

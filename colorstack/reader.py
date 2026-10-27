@@ -167,9 +167,15 @@ def read(lines):
                 yield idx, "cmd", code
 
 
+LAYER_RE = re.compile(r"^;\s*LAYER:\s*-?\d+")
+LAYER_WORD_RE = re.compile(r"^;\s*layer \d+", re.I)
+
+
 def _comment(line):
     body = line[1:].strip()
-    if line.startswith(";LAYER_CHANGE") or re.match(r"^;\s*LAYER:\s*-?\d+", line) or re.match(r"^;\s*layer \d+", line, re.I):
+    # both layer patterns need "layer" first after the ";" (the cheap test spares the regexes on other comments)
+    if line.startswith(";LAYER_CHANGE") or (body[:5].lower() == "layer" and (LAYER_RE.match(line)
+                                                                             or LAYER_WORD_RE.match(line))):
         yield "layer", None
         m = re.search(r"Z\s*=\s*(-?\d*\.?\d+)", line)
         if m:
