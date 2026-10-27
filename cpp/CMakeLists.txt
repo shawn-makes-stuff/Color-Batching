@@ -11,7 +11,7 @@ else()
   add_compile_options(-ffp-contract=off -Wall -Wextra)
 endif()
 
-add_library(cbcore core/reader.cpp core/model.cpp core/parse.cpp)
+add_library(cbcore core/reader.cpp core/model.cpp core/parse.cpp core/geometry.cpp core/writer.cpp)
 target_include_directories(cbcore PUBLIC core)
 
 add_executable(dump_events tools/dump_events.cpp)
@@ -19,3 +19,6 @@ target_link_libraries(dump_events cbcore)
 
 add_executable(dump_program tools/dump_program.cpp)
 target_link_libraries(dump_program cbcore)
+
+add_executable(write_bands tools/write_bands.cpp)
+target_link_libraries(write_bands cbcore)
