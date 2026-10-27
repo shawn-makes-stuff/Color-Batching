@@ -41,9 +41,6 @@
               background: transparent; cursor: pointer; color: var(--muted); }
   .icon-btn:hover { background: var(--panel-2); color: var(--text); }
   .icon-btn svg { width: 18px; height: 18px; }
-  .seg { display: inline-flex; flex: none; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 2px; }
-  .seg button { border: 0; background: transparent; padding: 3px 10px; border-radius: 6px; cursor: pointer; color: var(--muted); }
-  .seg button.on { background: var(--panel); color: var(--text); box-shadow: var(--shadow); }
   .toggle { display: inline-flex; flex: none; align-items: center; gap: 7px; color: var(--muted); cursor: pointer; user-select: none; }
   .toggle input { appearance: none; width: 28px; height: 16px; border-radius: 8px; background: var(--line); position: relative;
                   cursor: pointer; transition: background .15s; margin: 0; flex: none; }
@@ -144,6 +141,8 @@
   .result .meta { font-size: 12px; color: var(--muted); margin-top: 8px; }
 
   /* viewport */
+  #main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  #view { flex: 1; min-height: 0; display: flex; position: relative; }
   #wrap { position: relative; flex: 1; min-width: 0; }
   canvas { display: block; width: 100%; height: 100%; }
   .stats { position: absolute; top: 10px; display: flex; align-items: baseline; gap: 10px; padding: 7px 11px; border-radius: 9px;
@@ -156,6 +155,14 @@
   #wrap.narrow .stats { max-width: calc(100% - 20px); }
   #wrap.narrow #statsB { top: calc(50% + 10px); left: 10px; }
   #wrap.narrow .divider { left: 0; right: 0; top: 50%; bottom: auto; width: auto; height: 1px; }
+  #wrap.cmp-slider .divider, #wrap.cmp-off .divider { display: none; }
+  #wrap.cmp-off #statsA.hidden-print, #wrap.cmp-off #statsB.hidden-print { display: none; }
+  #wrap.cmp-slider #statsB, #wrap.cmp-off #statsB { left: auto; right: 74px; top: 10px; }
+  #split { position: absolute; top: 0; bottom: 0; width: 24px; margin-left: -12px; cursor: ew-resize; z-index: 3;
+           touch-action: none; }
+  #split::before { content: ""; position: absolute; top: 0; bottom: 0; left: 11px; width: 2px; background: var(--accent); }
+  #split span { position: absolute; top: 50%; left: 2px; width: 20px; height: 20px; margin-top: -10px; border-radius: 50%;
+                background: var(--accent); box-shadow: var(--shadow); }
   #drop { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); text-align: center; padding: 16px;
           pointer-events: none; }
   #drop div { max-width: 340px; }
@@ -199,13 +206,13 @@
 
   @media (max-width: 760px) {
     #stage { flex-direction: column; position: relative; }
+    #main { min-height: 0; }
     #app { width: auto; max-height: 50vh; border-right: 0; border-bottom: 1px solid var(--line); }
     #rail { position: absolute; right: 0; bottom: 0; height: min(100%, 60vh); background: transparent; border: 0; }
     #wrap { flex: 1; min-height: 240px; }
     .bar { gap: 8px; padding: 0 10px; }
     .bar .lbl, .bar .num, #speed, #fileName { display: none; }
     header { gap: 8px; }
-    .seg button { padding: 3px 7px; }
     .toggle { font-size: 0; gap: 0; }
   }
 </style>
@@ -230,15 +237,17 @@
   <div id="fileName"></div>
   <label class="open-btn">Original&hellip; <input type="file" id="fileA" accept=".gcode"></label>
   <label class="open-btn">Processed&hellip; <input type="file" id="fileB" accept=".gcode"></label>
-  <div class="seg" role="group" aria-label="Colour by"><button data-mode="0" class="on">Filament</button><button data-mode="1">Line type</button><button data-mode="2">Speed</button></div>
   <label class="toggle"><input type="checkbox" id="travel">Travels</label>
   <button class="icon-btn" id="theme" title="Light / dark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 0 0 16z" fill="currentColor"/></svg></button>
 </header>
 <div id="stage">
   <aside id="app" hidden></aside>
+  <div id="main">
+  <div id="view">
   <div id="wrap">
     <canvas id="c"></canvas>
     <div class="divider"></div>
+    <div id="split" hidden role="slider" aria-label="Original / ColorStack" tabindex="0"><span></span></div>
     <div class="stats info" id="statsB"></div>
     <div id="side"><div id="legend"></div><div class="stats info" id="statsA"></div></div>
     <div id="drop"><div><b>No print loaded</b>Open an Orca G-code file. The original plays on the left and the ColorStack version on the right, on the same clock.</div></div>
@@ -251,16 +260,26 @@
     </div>
     <div class="cap" id="railBot"></div>
   </div>
-</div>
+  </div>
 <div class="bar">
   <button id="play" title="Play / pause" aria-label="Play"></button>
   <input type="range" id="time" min="0" max="1000" value="1000" aria-label="Playback time">
   <span id="clock" title="Playback clock: distance / feedrate, no acceleration. The settings panel shows the real estimate."></span>
+  <span class="lbl">View</span>
+  <select id="viewMode" aria-label="Colour by"><option value="0">Filament</option><option value="1">Line type</option>
+    <option value="spd">Speed</option><option value="h">Height</option><option value="w">Width</option>
+    <option value="flow">Volumetric flow</option><option value="fan">Fan speed</option><option value="temp">Temperature</option></select>
+  <span class="lbl">Compare</span>
+  <select id="compare" aria-label="Compare"><option value="side">Side by side</option><option value="slider">Slider</option>
+    <option value="off">Off</option></select>
   <span class="lbl">Speed</span>
   <select id="speed" aria-label="Playback speed"><option value="60">60&times;</option><option value="300" selected>300&times;</option><option value="1200">1200&times;</option><option value="5000">5000&times;</option></select>
   <span class="lbl standalone-only">Swap</span>
   <span class="num standalone-only" title="Seconds one colour swap takes during playback (files without the app's estimate)"><input type="number" id="swapS" value="104" min="0"><span>s</span></span>
 </div>
+  </div>
+</div>
+
 
 <script type="importmap">
 { "imports": {
@@ -333,10 +352,15 @@ const SPEED_COLORS = [[11, 44, 122], [19, 89, 133], [28, 136, 145], [4, 214, 15]
 // extract_pos_and_or_hwa). Time per move = distance / feedrate.
 function parse(text) {
   const colours = (text.match(/^; filament_colour = (.*)$/m)?.[1] ?? "#888888").split(";").map((h) => h.trim() || "#888888");
+  const perTool = (k, d) => ((text.match(new RegExp("^; " + k + " = (.*)$", "m")) || [])[1] || "").split(",").map((v) => parseFloat(v) || d);
+  const area = perTool("filament_diameter", 1.75).map((dia) => Math.PI * dia * dia / 4);
+  const temps = perTool("nozzle_temperature_initial_layer", 0);      // until the file sets one (start G-code may use a macro)
+  let fan = 0;                                                       // part fan, % (M106 without P or P0)
   let x = 0, y = 0, z = 0, f = 3000, tool = 0, t = 0, firstT = true, live = false;
   let absXYZ = true, absE = false, eNow = 0;
   let role = 0, width = 0.4, height = 0.2, travN = 0;
   const posA = [], posB = [], hwA = [], hwB = [], toolOf = [], roleOf = [], tseg = [], travAt = [], npOf = [], spdOf = [];
+  const fanOf = [], tempOf = [], flowOf = [];
   const swapsAt = [], trav = [];
   const min = [1e9, 1e9, 1e9], max = [-1e9, -1e9, -1e9];
   let pl = [];
@@ -360,6 +384,7 @@ function parse(text) {
         posA.push(a.x, a.y, a.z - 0.5 * a.h); posB.push(b.x, b.y, b.z - 0.5 * b.h);
         hwA.push(a.h, a.w, ang[i]); hwB.push(b.h, b.w, ang[i + 1]);
         toolOf.push(b.tool); roleOf.push(b.role); tseg.push(b.t); travAt.push(b.tn); spdOf.push(b.f / 60);
+        fanOf.push(b.fan); tempOf.push(b.temp); flowOf.push(b.flow);
         for (const [v, h] of [[a, a.h], [b, b.h]]) {
           min[0] = Math.min(min[0], v.x); max[0] = Math.max(max[0], v.x);
           min[1] = Math.min(min[1], v.y); max[1] = Math.max(max[1], v.y);
@@ -427,18 +452,29 @@ function parse(text) {
       const t0 = t;
       t += d / (f / 60);
       if (live && e > 0 && (nx !== x || ny !== y)) {
-        if (!pl.length) pl.push({ x, y, z, w: width, h: height, role, tool, t: t0, tn: travN, f });
+        const temp = temps[tool] ?? temps[0], flow = d > 0 ? e / d * (area[tool] ?? area[0]) * f / 60 : 0;
+        if (!pl.length) pl.push({ x, y, z, w: width, h: height, role, tool, t: t0, tn: travN, f, fan, temp, flow });
         for (let k = 1; k <= steps; k++) {
           const last = k === steps, u = k / steps;
           const px = last || !arc ? nx : x + ci + r * Math.cos(a0 + sweep * u);
           const py = last || !arc ? ny : y + cj + r * Math.sin(a0 + sweep * u);
-          pl.push({ x: px, y: py, z: z + (nz - z) * u, w: width, h: height, role, tool, t: t0 + (t - t0) * u, tn: travN, f });
+          pl.push({ x: px, y: py, z: z + (nz - z) * u, w: width, h: height, role, tool, t: t0 + (t - t0) * u, tn: travN, f,
+                    fan, temp, flow });
         }
       } else if (any) {
         flush();
         if (live && (nx !== x || ny !== y)) { trav.push(x, y, z, nx, ny, nz); travN++; }
       }
       x = nx; y = ny; z = nz;
+    } else if (word === "M106" || word === "M107") {
+      const pm = s.match(/P(\d+)/i);
+      if (!pm || pm[1] === "0") {
+        const sv = s.match(/S(\d*\.?\d+)/i);
+        fan = word === "M107" ? 0 : (sv ? parseFloat(sv[1]) : 255) / 255 * 100;
+      }
+    } else if (word === "M104" || word === "M109") {
+      const sv = s.match(/S(\d*\.?\d+)/i), tv = s.match(/T(\d+)/i);
+      if (sv) temps[tv ? parseInt(tv[1]) : tool] = parseFloat(sv[1]);
     } else if (/^T\d+/.test(s)) {
       flush();
       const nt = parseInt(s.slice(1));
@@ -462,6 +498,9 @@ function parse(text) {
   const nm = text.match(/^; COLORSTACK nozzle tip_diameter=([\d.]+) cone_angle=([\d.]+) clear_height=([\d.]+)/m);
   return { colours, n: tseg.length, swapEach: each, nozzle: nm ? { tip_diameter: +nm[1], cone_angle: +nm[2], clear_height: +nm[3] } : null, posA: new Float32Array(posA), posB: new Float32Array(posB),
            hwA: new Float32Array(hwA), hwB: new Float32Array(hwB), tool: toolOf, role: roleOf, np: npOf, spd: new Float32Array(spdOf),
+           vals: { spd: new Float32Array(spdOf), h: Float32Array.from(hwB.filter((_, k) => k % 3 === 0)),
+                   w: Float32Array.from(hwB.filter((_, k) => k % 3 === 1)), flow: new Float32Array(flowOf),
+                   fan: new Float32Array(fanOf), temp: new Float32Array(tempOf) },
            tseg: new Float64Array(tseg), travAt: new Uint32Array(travAt), swapsAt,
            trav: new Float32Array(trav), moveTime: t, min, max };
 }
@@ -506,15 +545,15 @@ in vec3 aHwaA;
 in vec3 aHwaB;
 in vec3 aColF;
 in vec3 aColR;
-in float aSpd;
+in float aVal;      // the value the range views colour by (speed, height, width, flow, fan, temperature)
 uniform float uMode;
-uniform float uSpdMin;
-uniform float uSpdMax;
+uniform float uValMin;
+uniform float uValMax;
 const vec3 SPEED[11] = vec3[](${SPEED_COLORS.map((c) => `vec3(${c.map((v) => (v / 255).toFixed(4)).join(", ")})`).join(", ")});
 // libvgcode ColorRange::get_color_at, linear
-vec3 speed_color(float v) {
-  float step = (uSpdMax - uSpdMin) / 10.0;
-  float t = step > 0.0 ? (clamp(v, uSpdMin, uSpdMax) - uSpdMin) / step : 0.0;
+vec3 range_color(float v) {
+  float step = (uValMax - uValMin) / 10.0;
+  float t = step > 0.0 ? (clamp(v, uValMin, uValMax) - uValMin) / step : 0.0;
   int lo = clamp(int(t), 0, 10);
   return mix(SPEED[lo], SPEED[min(lo + 1, 10)], t - float(lo));
 }
@@ -603,7 +642,7 @@ void main() {
   }
   vec3 eye_position = (viewMatrix * vec4(pos, 1.0)).xyz;
   vec3 eye_normal = (viewMatrix * vec4(normalize(pos - endpoint_pos), 0.0)).xyz;
-  vec3 color_base = uMode < 0.5 ? aColF : (uMode < 1.5 ? aColR : speed_color(aSpd));
+  vec3 color_base = uMode < 0.5 ? aColF : (uMode < 1.5 ? aColR : range_color(aVal));
   color = color_base * lighting(eye_position, eye_normal);
   gl_Position = projectionMatrix * vec4(eye_position, 1.0);
 }`;
@@ -743,7 +782,7 @@ addEventListener("keydown", (e) => {
   setView(KEY_VIEWS[+e.key]);
 });
 // shared by both prints: layer range (by z) and colour mode
-const U = { uMode: { value: 0 }, uZmin: { value: -1e9 }, uZmax: { value: 1e9 }, uSpdMin: { value: 0 }, uSpdMax: { value: 1 } };
+const U = { uMode: { value: 0 }, uZmin: { value: -1e9 }, uZmax: { value: 1e9 }, uValMin: { value: 0 }, uValMax: { value: 1 } };
 const clipLo = new THREE.Plane(new THREE.Vector3(0, 0, 1), 1e6), clipHi = new THREE.Plane(new THREE.Vector3(0, 0, -1), 1e6);
 renderer.localClippingEnabled = true;
 const prints = [null, null];
@@ -786,7 +825,7 @@ function build(i, p) {
   g.setAttribute("vid", new THREE.BufferAttribute(Float32Array.from([0, 1, 2, 3, 4, 5, 6, 7]), 1));
   for (const [name, data] of [["aPosA", p.posA], ["aPosB", p.posB], ["aHwaA", p.hwA], ["aHwaB", p.hwB], ["aColF", colF], ["aColR", colR]])
     g.setAttribute(name, new THREE.InstancedBufferAttribute(data, 3));
-  g.setAttribute("aSpd", new THREE.InstancedBufferAttribute(p.spd, 1));
+  g.setAttribute("aVal", new THREE.InstancedBufferAttribute(p.vals[RANGE_KEY()] ?? p.vals.spd, 1));
   g.instanceCount = n;
   const mat = new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, vertexShader: VERT, fragmentShader: FRAG,
                                          uniforms: { ...U, uPart: { value: -1 }, uFrac: { value: 1 } }, side: THREE.DoubleSide });
@@ -878,20 +917,31 @@ function dragThumb(el, isHi) {
 dragThumb($("vhi"), true); dragThumb($("vlo"), false);
 
 // ---------- legend ----------
+// range views: value key -> [legend title, unit decimals]; colour by Orca's range palette over both prints
+const RANGES = { spd: ["Speed (mm/s)", 0], h: ["Height (mm)", 2], w: ["Width (mm)", 2], flow: ["Volumetric flow (mm³/s)", 1],
+                 fan: ["Fan speed (%)", 0], temp: ["Temperature (°C)", 0] };
+let viewMode = "0";
+const RANGE_KEY = () => (viewMode in RANGES ? viewMode : "spd");
 function legend() {
   const ps = prints.filter(Boolean);
   const el = $("legend");
   if (!ps.length) { el.innerHTML = ""; return; }
-  let lo = Infinity, hi = 0;          // speed range over both prints, so one colour means one speed
-  for (const p of ps) for (const v of p.spd) if (v > 0) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
-  U.uSpdMin.value = lo; U.uSpdMax.value = hi;
   const css = (c) => `rgb(${c.map((v) => Math.round(v * 255)).join(",")})`;
   let html;
-  if (U.uMode.value > 1.5) {
-    const [lo, hi] = [U.uSpdMin.value, U.uSpdMax.value], digits = hi - lo < 10 ? 1 : 0;
-    html = "<b>Speed (mm/s)</b>" + SPEED_COLORS.map((c, k) => [c, lo + (hi - lo) * k / 10]).reverse()
+  if (viewMode in RANGES) {
+    const key = viewMode;
+    let lo = Infinity, hi = -Infinity;      // one range over both prints, so one colour means one value
+    for (const p of ps) {
+      for (const v of p.vals[key]) if (key !== "spd" || v > 0) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+      const attr = p.mesh.geometry.getAttribute("aVal");
+      if (attr.array !== p.vals[key]) { p.mesh.geometry.setAttribute("aVal", new THREE.InstancedBufferAttribute(p.vals[key], 1)); }
+    }
+    if (!isFinite(lo)) lo = hi = 0;
+    U.uValMin.value = lo; U.uValMax.value = hi;
+    const [title, digits0] = RANGES[key], digits = hi - lo < 10 && digits0 === 0 ? 1 : digits0;
+    html = `<b>${title}</b>` + (hi - lo < 1e-9 ? [[SPEED_COLORS[0], lo]] : SPEED_COLORS.map((c, k) => [c, lo + (hi - lo) * k / 10]).reverse())
       .map(([c, v]) => `<div><i style="background:rgb(${c})"></i>${v.toFixed(digits)}</div>`).join("");
-  } else if (U.uMode.value < 0.5) {
+  } else if (viewMode === "0") {
     const tools = new Set(), names = ps[0].colours;
     for (const p of ps) for (const k of p.tool) tools.add(k);
     html = "<b>Filament</b>" + [...tools].sort().map((k) => {
@@ -969,6 +1019,40 @@ function update() {
   if (!appMode) $("fileName").textContent = names.join("  vs  ");
 }
 
+// ---------- compare: side by side, a before/after slider over one model, or one print only ----------
+const memory = (() => { try { return window.localStorage; } catch { return null; } })();
+function remember(key, value) { try { memory?.setItem("colorstack." + key, value); } catch { /* private window */ } }
+function recall(key) { try { return memory?.getItem("colorstack." + key); } catch { return null; } }
+let compare = "side", split = 0.5;
+function setCompare(c) {
+  compare = c;
+  $("compare").value = c;
+  remember("compare", c);
+  wrap.classList.toggle("cmp-slider", c === "slider");
+  wrap.classList.toggle("cmp-off", c === "off");
+  $("split").hidden = c !== "slider";
+  $("split").style.left = split * 100 + "%";
+  // Off: the processed print (else the original) fills the view, its box only
+  $("statsA").classList.toggle("hidden-print", c === "off" && !!prints[1]);
+  $("statsB").classList.toggle("hidden-print", c === "off" && !prints[1]);
+}
+$("compare").onchange = (e) => setCompare(e.target.value);
+{
+  const handle = $("split");
+  const move = (clientX) => {
+    const r = wrap.getBoundingClientRect();
+    split = Math.max(0.02, Math.min(0.98, (clientX - r.left) / r.width));
+    handle.style.left = split * 100 + "%";
+    handle.setAttribute("aria-valuenow", Math.round(split * 100));
+  };
+  handle.addEventListener("pointerdown", (e) => { handle.setPointerCapture(e.pointerId); move(e.clientX); });
+  handle.addEventListener("pointermove", (e) => { if (handle.hasPointerCapture(e.pointerId)) move(e.clientX); });
+  handle.addEventListener("keydown", (e) => {
+    const r = wrap.getBoundingClientRect(), step = e.key === "ArrowLeft" ? -0.02 : e.key === "ArrowRight" ? 0.02 : 0;
+    if (step) { move(r.left + (split + step) * r.width); e.preventDefault(); }
+  });
+}
+
 let lastSig = "";
 function render(now) {
   requestAnimationFrame(render);
@@ -987,23 +1071,37 @@ function render(now) {
   }
   if (flat && camera.quaternion.angleTo(flatQuat) > 1e-3) flat = false;     // rotated away: perspective again
   // draw only when something that affects the picture changed (500k-segment files are heavy)
-  const sig = [w, h, flat, hovered, ...camera.position.toArray(), ...camera.quaternion.toArray(), U.uMode.value, U.uZmin.value, U.uZmax.value,
+  const sig = [w, h, flat, hovered, compare, split, ...camera.position.toArray(), ...camera.quaternion.toArray(), U.uMode.value, U.uZmin.value, U.uZmax.value,
     clipLo.constant, clipHi.constant, scenes[0].background?.getHex(), $("travel").checked,
     ...prints.map((p) => (p ? `${p.mesh.id},${p.mesh.geometry.instanceCount},${p.travLines.geometry.drawRange.count},${p.mesh.material.uniforms.uFrac.value.toFixed(3)}` : "-")),
     ...nozzles.map((m) => `${m.visible},${m.position.x.toFixed(3)},${m.position.y.toFixed(3)},${m.position.z.toFixed(3)}`)].join();
   if (sig === lastSig) return;
   lastSig = sig;
-  const narrow = w < 700;
+  const narrow = compare === "side" && w < 700;
   wrap.classList.toggle("narrow", narrow);
-  const vw = narrow ? w : w / 2, vh = narrow ? h / 2 : h;
-  camera.aspect = vw / vh;
-  camera.updateProjectionMatrix();
-  const cam = viewCamera();
-  for (let i = 0; i < 2; i++) {
-    const x = narrow ? 0 : i * vw, y = narrow ? (i ? 0 : vh) : 0;
-    renderer.setViewport(x, y, vw, vh);
-    renderer.setScissor(x, y, vw, vh);
-    renderer.render(scenes[i], cam);
+  if (compare === "side") {
+    const vw = narrow ? w : w / 2, vh = narrow ? h / 2 : h;
+    camera.aspect = vw / vh;
+    camera.updateProjectionMatrix();
+    const cam = viewCamera();
+    for (let i = 0; i < 2; i++) {
+      const x = narrow ? 0 : i * vw, y = narrow ? (i ? 0 : vh) : 0;
+      renderer.setViewport(x, y, vw, vh);
+      renderer.setScissor(x, y, vw, vh);
+      renderer.render(scenes[i], cam);
+    }
+  } else {
+    // one view, one camera: Off shows one print; Slider shows the original left of the handle, ColorStack right
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    const cam = viewCamera();
+    renderer.setViewport(0, 0, w, h);
+    const sx = compare === "off" ? (prints[1] ? 0 : w) : Math.round(split * w);
+    for (const [i, x0, x1] of [[0, 0, sx], [1, sx, w]]) {
+      if (x1 - x0 < 1) continue;
+      renderer.setScissor(x0, 0, x1 - x0, h);
+      renderer.render(scenes[i], cam);
+    }
   }
   if (!prints.some(Boolean)) return;          // nothing to orient: no cube
   cubeCam.position.set(0, 0, 3).applyQuaternion(camera.quaternion);
@@ -1034,6 +1132,7 @@ function infoBoxes() {
       <span>Total time</span><span>${fmt(total)}</span>`;
     el.title = p.name;
   });
+  setCompare(compare);
 }
 
 // ---------- loading ----------
@@ -1072,10 +1171,15 @@ setPlaying(false);
 $("time").oninput = (e) => { const [w0, w1] = playWindow(); state.t = w0 + (e.target.value / 1000) * (w1 - w0); update(); };
 $("travel").onchange = (e) => prints.forEach((p) => p && (p.travLines.visible = e.target.checked));
 function setMode(m) {
-  U.uMode.value = +m; legend();
-  document.querySelectorAll(".seg button").forEach((b) => b.classList.toggle("on", b.dataset.mode === String(m)));
+  viewMode = String(m);
+  U.uMode.value = viewMode === "0" ? 0 : viewMode === "1" ? 1 : 2;
+  $("viewMode").value = viewMode;
+  remember("viewMode", viewMode);
+  legend();
 }
-document.querySelectorAll(".seg button").forEach((b) => b.onclick = () => setMode(b.dataset.mode));
+$("viewMode").onchange = (e) => setMode(e.target.value);
+if ([...$("viewMode").options].some((o) => o.value === recall("viewMode"))) setMode(recall("viewMode"));
+if (["side", "slider", "off"].includes(recall("compare"))) setCompare(recall("compare"));
 $("swapS").onchange = () => { prints.forEach((p) => p && timeline(p)); update(); };
 
 // ---------- app mode (settings + process), only when colorstack.app serves this page ----------
