@@ -37,7 +37,8 @@ class Path:
     state: tuple = ()         # machine state commands in force (PA, speed / flow factor, jerk): ((key, line), ...)
     zs: tuple | None = None   # Z per point where it changes along the path (Orca scarf seam ramp); z is then the top
     lead: tuple = ()          # the slicer's way into the path since the extrusion before it: ("move", x, y, z, de, f)
-                              # (retracts, wipes, lifts, travel route) and ("line", text) (G10 / G11, wipe markers)
+                              # (retracts, wipes, lifts, travel route), ("line", text) (G10 / G11, wipe markers) and
+                              # ("accel", a) (the slicer's travel / wipe acceleration)
 
     @property
     def visible(self):

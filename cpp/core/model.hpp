@@ -90,7 +90,8 @@ struct Program {
     std::vector<std::pair<std::pair<int, std::string>, std::vector<std::pair<int, State>>>> states;
     Travel travel{};
     std::set<std::pair<std::optional<std::string>, std::string>> free_support;
-    std::map<int, std::vector<std::string>> toolchange_end, toolchange_start;
+    // tool -> swap block lines, in insertion order (the writer falls back to the first one stored)
+    std::vector<std::pair<int, std::vector<std::string>>> toolchange_end, toolchange_start;
 
     std::optional<double> temp_at(int tool, int index) const;
     const State* state_at(int tool, int index, const std::string& type) const;

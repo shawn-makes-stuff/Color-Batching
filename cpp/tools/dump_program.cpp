@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <map>
 #include <string>
 
 #include "../core/parse.hpp"
@@ -88,7 +89,7 @@ int main(int argc, char** argv) {
     for (auto& [obj, typ] : fs) w("free_support " + obj + " " + typ + "\n");
     for (auto [name, blocks] : {std::make_pair("toolchange_end", &prog.toolchange_end),
                                 std::make_pair("toolchange_start", &prog.toolchange_start)})
-        for (auto& [tool, lines] : *blocks) {
+        for (auto& [tool, lines] : std::map<int, std::vector<std::string>>(blocks->begin(), blocks->end())) {
             w(std::string(name) + " " + std::to_string(tool) + " " + std::to_string(lines.size()) + "\n");
             for (auto& ln : lines) w("| " + ln + "\n");
         }

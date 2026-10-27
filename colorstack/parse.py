@@ -165,6 +165,7 @@ def parse(path_in):
                     w = lines[i].split()[0].upper()
                     prog.accel_format = "M204 S{a}" if w == "M204" else "SET_VELOCITY_LIMIT ACCEL={a}"
                     accel_seen = True
+                lead.append(("accel", val))     # travel / wipe acceleration between paths (PrusaSlicer M204 S...)
             accel = val
             continue
         if kind == "scv":
@@ -266,6 +267,26 @@ def parse(path_in):
             L.height = round(L.z - prev, 4) if L.z > prev else first_setting(settings, "layer_height", 0.2)
         prev = L.z
     layers = [L for L in layers if L.paths or L.cmds]
+    # one physical layer per Z: a slicer that batches colours itself (PrusaSlicer 3.0) starts a layer marker per tool
+    # pass and goes back down (;Z:12.68 after 12.84, ;HEIGHT:0 / -0.16). Markers at the same Z become one layer
+    # (paths and commands in file order), layers in Z order, a height that is not positive taken from the Z gap.
+    if any(b.z <= a.z + 1e-4 for a, b in zip(layers, layers[1:])):
+        merged = {}
+        for L in layers:
+            key = round(L.z, 4)
+            if key in merged:
+                m = merged[key]
+                m.paths += L.paths
+                m.cmds += L.cmds
+                m.height = max(m.height, L.height)
+            else:
+                merged[key] = L
+        layers = sorted(merged.values(), key=lambda L: L.z)
+        prev = 0.0
+        for L in layers:
+            if L.height <= 0:
+                L.height = round(L.z - prev, 4) if L.z > prev else first_setting(settings, "layer_height", 0.2)
+            prev = L.z
     for k, L in enumerate(layers):
         L.index = k
     prog.layers = layers
@@ -322,7 +343,9 @@ def _check_printer(prog):
     (multi-nozzle heads, IDEX / parallel printing, toolchangers: Orca marks none of them apart in the file, and an
     idle nozzle beside the active one is not modelled) and belt printers (tilted layers)."""
     nozzles = prog.setting_list("nozzle_diameter", default=[])
-    if len(nozzles) > 1:
+    # single_extruder_multi_material = 1 is one nozzle ("Use single nozzle to print multi filament"); PrusaSlicer then
+    # still writes one nozzle_diameter per filament
+    if len(nozzles) > 1 and first_setting(prog.settings, "single_extruder_multi_material", 0) != 1:
         raise ValueError(f"the printer has {len(nozzles)} nozzles; ColorStack supports one nozzle with a filament "
                          "changer only")
     if first_setting(prog.settings, "belt_printer", 0) == 1:

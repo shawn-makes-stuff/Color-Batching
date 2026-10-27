@@ -484,8 +484,15 @@ Program parse(const std::string& path_in) {
                 } else if (starts(v, "; CP TOOLCHANGE WIPE")) {
                     in_toolchange = false;
                     if (tc_split) {     // filament end G-code before T, the next filament's start G-code after
-                        prog.toolchange_end.emplace(tc_from, std::vector<std::string>(tc_lines.begin(), tc_lines.begin() + *tc_split));
-                        prog.toolchange_start.emplace(tool, std::vector<std::string>(tc_lines.begin() + *tc_split, tc_lines.end()));
+                        auto setdefault = [](auto& blocks, int key, std::vector<std::string> lines) {
+                            for (auto& kv : blocks)
+                                if (kv.first == key) return;
+                            blocks.emplace_back(key, std::move(lines));
+                        };
+                        setdefault(prog.toolchange_end, tc_from,
+                                   std::vector<std::string>(tc_lines.begin(), tc_lines.begin() + *tc_split));
+                        setdefault(prog.toolchange_start, tool,
+                                   std::vector<std::string>(tc_lines.begin() + *tc_split, tc_lines.end()));
                     }
                     close();
                     block++;
@@ -582,6 +589,36 @@ Program parse(const std::string& path_in) {
     }
     for (auto& L : layers)
         if (!L.paths.empty() || !L.cmds.empty()) prog.layers.push_back(std::move(L));
+    // one physical layer per Z: a slicer that batches colours itself (PrusaSlicer 3.0) starts a layer marker per tool
+    // pass and goes back down. Markers at the same Z become one layer (paths and commands in file order), layers in Z
+    // order, a height that is not positive taken from the Z gap.
+    bool revisits = false;
+    for (size_t k = 1; k < prog.layers.size(); k++) revisits = revisits || prog.layers[k].z <= prog.layers[k - 1].z + 1e-4;
+    if (revisits) {
+        std::vector<Layer> merged;
+        std::map<double, size_t> at;    // round(z, 4) -> position in merged
+        for (auto& L : prog.layers) {
+            double key = py_round(L.z, 4);
+            auto it = at.find(key);
+            if (it != at.end()) {
+                Layer& m = merged[it->second];
+                m.paths.insert(m.paths.end(), L.paths.begin(), L.paths.end());
+                m.cmds.insert(m.cmds.end(), L.cmds.begin(), L.cmds.end());
+                m.height = std::max(m.height, L.height);
+            } else {
+                at[key] = merged.size();
+                merged.push_back(std::move(L));
+            }
+        }
+        std::stable_sort(merged.begin(), merged.end(), [](const Layer& a, const Layer& b) { return a.z < b.z; });
+        double prev_z = 0.0;
+        for (auto& L : merged) {
+            if (L.height <= 0)
+                L.height = L.z > prev_z ? py_round(L.z - prev_z, 4) : first_setting(prog.settings, "layer_height", 0.2);
+            prev_z = L.z;
+        }
+        prog.layers = std::move(merged);
+    }
     for (size_t k = 0; k < prog.layers.size(); k++) prog.layers[k].index = int(k);
 
     std::map<std::pair<std::optional<std::string>, std::string>, std::set<int>> support_tools;

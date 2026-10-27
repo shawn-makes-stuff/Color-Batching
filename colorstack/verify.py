@@ -106,6 +106,7 @@ def _states(path, step=0.5):
     of extrusion starts per feature type (an extrusion right after a travel or a retract)."""
     out, starts = {}, {}
     tool, typ, pa, temp, accel, speed, flow = 0, "", None, None, None, 100.0, 100.0
+    scv, jerk = None, None
     fans = {}
     live = moving = False
     lines = load(path)
@@ -126,6 +127,8 @@ def _states(path, step=0.5):
             live = True        # our output: layers follow the summary
         elif kind == "accel":
             accel = v
+        elif kind == "scv":
+            scv = v
         elif kind == "cmd":
             w = v.split()[0].upper()
             words = dict(re.findall(r"\b([A-Z])(-?\d*\.?\d+)", v.upper()))
@@ -138,6 +141,8 @@ def _states(path, step=0.5):
             elif w in ("M106", "M107"):
                 key = "" if words.get("P", "0") == "0" else "P" + words["P"]
                 fans[key] = 0 if w == "M107" else int(float(words.get("S", 255)))
+            elif w in ("M205", "M566"):        # jerk (Marlin / RepRapFirmware): the values it sets
+                jerk = tuple(sorted(words.items()))
             elif w == "M220" and "S" in words:
                 speed = float(words["S"])
             elif w == "M221" and "S" in words:
@@ -155,7 +160,8 @@ def _states(path, step=0.5):
                 moving = True
             n = max(1, int(v.xy / step))
             other = tuple(sorted((k, s) for k, s in fans.items() if k))
-            state = (tool, typ, round(v.f), round(v.de / v.xy, 4), pa, fans.get("", 0), other, temp, accel, speed, flow)
+            state = (tool, typ, round(v.f), round(v.de / v.xy, 4), pa, fans.get("", 0), other, temp, accel, speed, flow,
+                     scv, jerk)
             for t in (np.arange(n) + 0.5) / n:
                 key = (round(v.z0 + (v.z1 - v.z0) * t, 2), round((v.x0 + (v.x1 - v.x0) * t) / 0.1),
                        round((v.y0 + (v.y1 - v.y0) * t) / 0.1))
@@ -368,7 +374,8 @@ def e_balance(path):
     return laid - net
 
 
-FIELDS = ("tool", "type", "speed", "flow", "PA", "fan", "other fans", "temperature", "accel", "speed %", "flow %")
+FIELDS = ("tool", "type", "speed", "flow", "PA", "fan", "other fans", "temperature", "accel", "speed %", "flow %",
+          "corner velocity", "jerk")
 
 
 def fidelity(original, processed, step=0.5):

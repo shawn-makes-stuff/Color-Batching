@@ -138,6 +138,19 @@ conditional=0 - get a GUI-exported scarf file from the user.
    and filament_is_support all match (pipeline.materials). Free support covers base and interface printed with
    Default. tools/test_materials.py: Stitch with T1 as PETG, 0 segments moved between PETG and PLA (191 swaps vs 181).
    All-PLA files byte-identical.
+16. 2026-10-27 fixes: (a) single-colour files were slowed again by the cooling rule (USB-C holder 32.0 -> 35.0
+   min): a region taking as long as its original layer keeps the slicer's speeds and fans, and the target is never
+   more than the original layer time -> 32.0 -> 32.0. (b) Travel / wipe accelerations between paths (PrusaSlicer
+   M204 S15000, Orca SET_VELOCITY_LIMIT ACCEL) are part of the lead-in: replayed, and regenerated travels use the
+   slicer's travel acceleration (USB motion 1913.5 -> 1870.1 s vs the original's 1870.0). (c) Nozzle guard:
+   single_extruder_multi_material = 1 is one nozzle even when PrusaSlicer lists nozzle_diameter per filament.
+   (d) Layer markers at the same Z are one physical layer, layers in Z order (files batched by the slicer itself,
+   e.g. the user's PiggieSlicer / PrusaSlicer 3.0 clustering: ;Z goes back down, ;HEIGHT 0 / -0.16); that cube had
+   103 late-support spots, now 0 collisions; Orca files byte-identical. (e) verify --fidelity also compares
+   square corner velocity and jerk (no test file sets them yet: add a jerk variant).
+   Known PrusaSlicer gap (Prusa support later): its retraction keys (retract_length, retract_speed, retract_lift,
+   retract_before_travel, ...) are not read, so regenerated travels use the most common retract seen in the file.
+   User: ignore the PiggieSlicer files (they carry the user's own clustering).
 Priorities (user, 2026-10-27): Marlin low; Bambu AMS swaps later (large user base, must do), then Prusa MMU.
 NEXT: Vegeta's 20 extra late-support with free support (find the spots: verify.check on work/regress/s1); speed
 pass on large files (planning now the largest stage); island order needs a rethink (stash/islands).

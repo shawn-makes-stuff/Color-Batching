@@ -27,6 +27,17 @@ def _fmt(v):
     return f"{v:.3f}".rstrip("0").rstrip(".")
 
 
+def _travel_accel(p):
+    """The acceleration the slicer travelled into p with: the last one it set before its first travel move."""
+    a = None
+    for item in p.lead:
+        if item[0] == "accel":
+            a = item[1]
+        elif item[0] == "move" and item[4] == 0:
+            return a
+    return None
+
+
 def _block(blocks, tool):
     """The slicer's swap block for tool; a tool the original never swapped (its block lives in the start G-code)
     takes another tool's, as the slicer renders one template per filament."""
@@ -86,6 +97,9 @@ class Writer:
         self.fan_layer_time = setting("fan_cooling_layer_time")
         self.no_fan_layers = int(setting("close_fan_the_first_x_layers", default=[0])[0])
         self.slowed = self.short = self.fanned = self.waited = 0
+        # each layer's print time in the original (same measure as _cool's): the slicer already cooled a region that
+        # takes at least as long as its whole layer did
+        self.layer_time = [_print_time(L.paths) for L in program.layers]
         # wipe while retracting, as the slicer does
         self.wipe = bool(setting("wipe", default=[0])[0])
         self.wipe_dist = setting("wipe_distance", default=[0.0])[0]
@@ -248,10 +262,18 @@ class Writer:
             pos, z = (x, y), nz
         return math.dist(pos, p.pts[0]) < 1e-6 and abs(z - p.z0) < 1e-6
 
+    def _accel(self, a):
+        if a is not None and a != self.accel:
+            self.emit(self.p.accel_format.format(a=_fmt(a)))
+            self.accel = a
+
     def replay(self, lead):
         """Write the slicer's way into the next path as it wrote it (relative E)."""
         balance = 0.0
         for item in lead:
+            if item[0] == "accel":
+                self._accel(item[1])
+                continue
             if item[0] == "line":
                 self.emit(item[1])
                 if item[1] in ("G10", "G11"):
@@ -424,8 +446,10 @@ class Writer:
             moved = not (q.tail and p.head and p.seq == q.seq + 1 and p.tool == q.tool)
             far = self.pos is not None and math.dist(self.pos, (x0, y0)) > self.min_travel
             in_tower = p.tower is not None and q.tower is not None
+            self._accel(_travel_accel(p))
             self.travel(x0, y0, z0, (p.retract_before or (moved and far), p.hop_before and not (moved and in_tower)), high)
         else:
+            self._accel(_travel_accel(p))
             self.travel(x0, y0, z0, None, high)
         if p.accel is not None and p.accel != self.accel:
             self.emit(self.p.accel_format.format(a=_fmt(p.accel)))
@@ -484,6 +508,9 @@ class Writer:
         t = _print_time(paths)
         if need <= 0 or t <= 0:
             return paths, 0.0
+        if t + extra >= self.layer_time[layer_index] * 0.999:
+            return paths, 0.0       # as long as the original layer: its speeds and fans are the slicer's own
+        need = min(need, self.layer_time[layer_index])      # never more cooling time than the original gave
         if t + extra >= need or not self.respect_min_layer_time:
             return self._fan(paths, k, t + extra, layer_index), 0.0
         # Orca's CoolingBuffer slows every extrusion proportionally, not below the minimum speed; outer walls keep
