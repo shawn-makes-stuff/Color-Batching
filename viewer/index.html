@@ -1200,6 +1200,8 @@ async function initApp() {
     const r = await fetch("/api/config");
     if (!r.ok || !(r.headers.get("content-type") || "").includes("json")) return;
     cfg = await r.json();
+    // a page opened again (refresh) abandons the run the page before it started
+    await fetch("/api/cancel", { method: "POST" }).catch(() => {});
     st = await (await fetch("/api/state")).json();
   } catch { return; }
   appMode = true;

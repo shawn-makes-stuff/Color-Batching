@@ -1,5 +1,5 @@
 """Entry point for the CLI and the app: settings in, processed file + summary out."""
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from concurrent.futures.process import BrokenProcessPool
 from pathlib import Path
 
@@ -30,6 +30,18 @@ def materials(prog):
     def at(values, k):
         return values[min(k, len(values) - 1)]
     return tuple((t, at(soluble, k), at(support, k)) for k, t in enumerate(types))
+
+
+class Cancelled(Exception):
+    """run() was asked to stop (the app's page was refreshed or closed mid-run)."""
+
+
+def _stop(pool):
+    """End a pool's workers now: shutdown() alone lets running variants finish."""
+    # ProcessPoolExecutor has no public kill; _processes holds the worker processes (CPython 3.8-3.13)
+    for proc in list(getattr(pool, "_processes", {}).values()):
+        proc.terminate()
+    pool.shutdown(wait=False, cancel_futures=True)
 
 
 def _progress_span(report, a, b):
@@ -83,10 +95,15 @@ def _variant(prog, nozzle, cfg, lim, staggered, per_object, progress=None):
     }}
 
 
-def run(input_path, output_path, cfg, progress=None):
+def run(input_path, output_path, cfg, progress=None, cancelled=None):
     """Process input_path into output_path. Returns a JSON-able summary. progress(fraction, stage) as it goes,
-    the fraction weighted by what each stage costs on a 4-colour file."""
-    report = progress or (lambda fraction, stage: None)
+    the fraction weighted by what each stage costs on a 4-colour file. cancelled(): true to stop; checked at every
+    progress step, and every 0.3 s while worker processes plan (they are ended); raises Cancelled."""
+    def report(fraction, stage):
+        if cancelled and cancelled():
+            raise Cancelled()
+        if progress:
+            progress(fraction, stage)
     nz, st = cfg["nozzle"], cfg["stack"]
     nozzle = Nozzle(nz["tip_diameter"] / 2, nz["cone_angle"], nz["clear_height"], nz["contact"])
     report(0.0, "Reading the file")
@@ -111,10 +128,13 @@ def run(input_path, output_path, cfg, progress=None):
             with ProcessPoolExecutor(max_workers=len(variants)) as pool:
                 jobs = [pool.submit(_variant, prog, nozzle, cfg, lim, *v) for v in variants]
                 o = estimate(original, lim)
-                done = 0
-                for _ in as_completed(jobs):
-                    done += 1
-                    report(0.1 + 0.87 * done / len(jobs), "Planning colour bands")
+                pending = set(jobs)
+                while pending:
+                    _, pending = wait(pending, timeout=0.3, return_when=FIRST_COMPLETED)
+                    if cancelled and cancelled():
+                        _stop(pool)
+                        raise Cancelled()
+                    report(0.1 + 0.87 * (len(jobs) - len(pending)) / len(jobs), "Planning colour bands")
                 results = [j.result() for j in jobs]
         except BrokenProcessPool:       # a host that cannot start worker processes: one after another
             o = estimate(original, lim)

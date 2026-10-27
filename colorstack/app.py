@@ -13,7 +13,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from .config import DEFAULTS, HELP, apply, load_config, save_config
-from .pipeline import run
+from .pipeline import Cancelled, run
 
 ROOT = Path(__file__).resolve().parent.parent
 VIEWER = ROOT / "viewer" / "index.html"
@@ -22,6 +22,7 @@ WORK = ROOT / "work"
 
 state = {"input": None}
 busy = threading.Lock()
+cancel = threading.Event()      # set by a newly opened page: the run for the page before it is abandoned
 progress = {"fraction": 0.0, "stage": "", "started": 0.0, "running": False}
 
 
@@ -116,6 +117,9 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/config":
                 save_config(apply(load_config(), json.loads(self.body())))
                 self.reply(200, {"ok": True})
+            elif u.path == "/api/cancel":
+                cancel.set()
+                self.reply(200, {"ok": True, "was_running": progress["running"]})
             elif u.path == "/api/upload":
                 name = safe_name(parse_qs(u.query).get("name", ["upload.gcode"])[0])
                 WORK.mkdir(exist_ok=True)
@@ -136,10 +140,13 @@ class Handler(BaseHTTPRequestHandler):
                 if not busy.acquire(blocking=False):
                     return self.reply(409, {"error": "already processing"})
                 progress.update(fraction=0.0, stage="", started=time.time(), running=True)
+                cancel.clear()
                 try:
                     out = WORK / (src.name[:-6] + ".colorstack.gcode")
                     result = run(str(src), str(out), apply(load_config(), req.get("config", {})),
-                                 lambda f, stage: progress.update(fraction=f, stage=stage))
+                                 lambda f, stage: progress.update(fraction=f, stage=stage), cancel.is_set)
+                except Cancelled:
+                    return self.reply(409, {"error": "cancelled"})
                 finally:
                     progress["running"] = False
                     busy.release()
