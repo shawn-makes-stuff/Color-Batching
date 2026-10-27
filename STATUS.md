@@ -177,6 +177,11 @@ motion model 13 s), writer 41 s (height map 30 s = densify again), KD queries 22
 3. DONE plan variants (per-object on/off, staggered) in parallel processes; the original timed meanwhile; falls back
    to one after another if worker processes cannot start (embedded hosts). Outputs byte-identical (regress p1 vs p2,
    CLI, threaded app path, forced fallback). Stitch 43 -> 24 s, Vegeta 184 -> 114 s (325 s this morning).
+5. 2026-10-27, measured and NOT kept (each identical output, no gain): skip KD queries by bounding box (trees span the
+   whole layer, boxes always overlap: 143 -> 141 s), tighter query radius (138 s, noise), hand-written word parser +
+   precomputed move length (reader 7.6 -> 9.1 s, slower: the C regex wins). Kept: per-band answer cache
+   (b15461f). Vegeta per variant (machine loaded): plan ~50 s, write ~41 s, estimate ~30 s, send back 3 s; parse
+   20 s. What is left is spread out; big further gains need native code (the Orca C++ integration).
 4. Next hotspots (tools/stage_times.py, profile): planning (KD queries ~15 s profiled on Stitch), estimate of
    each output (reader + motion model), parse 16 s on Vegeta.
 Planning (from the user, 2026-10-26):
