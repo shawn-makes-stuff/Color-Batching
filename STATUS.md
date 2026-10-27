@@ -91,14 +91,26 @@ RESUME HERE (2026-10-27). Branch refine-compat (pushed 2026-10-26 up to fix 1). 
    late-support spots), PA / swap blocks / E balance all as the original.
    Left: per-filament retraction on regenerated travels (filaments variant: T0 0.5 mm, writer uses 0.8); E written
    with 5 decimals gives ~1% flow error on tiny arc segments (scarf_arcs 948 mm, old) - write 6.
+9. FIX 6 done: per-filament retraction overrides (Orca filament_extruder_override_keys, "nil" = printer's) for the
+   writer's own travels; after a swap the filament is primed back by the amount retracted (Orca does the same).
+   filaments variant: left retracted 0.50 -> 0.50 (= original; was 0.80). The ~1% flow error on arc chords is a
+   checker artifact (3-decimal X/Y on 0.05 mm chords), not a print defect; keeping G2/G3 would remove it.
+10. Printer guards: refuse more than one nozzle (nozzle_diameter count; covers multi-nozzle heads, IDEX/parallel,
+   toolchangers: Orca does not tell them apart in the file, is_imex is kept out of the G-code) and belt_printer=1.
+   tools/test_guards.py. Toolchangers can be allowed once a real toolchanger file is tested.
+11. Cooling: verify.cooling_fidelity (per spot, time before the next layer vs the original, below the filament's
+   minimum layer time = worse). tools/cooling_options.py compared the options; new defaults
+   respect_min_layer_time on (outer walls keep their sliced speed: 0 mm changed) + tower_between on; lift_wait off
+   (little gain, ooze). Cooled worse: cube1h43 2.8% -> 0.3%, Anycubic cube 9.8% -> 3.1%, variants 0.1-0.4%, Stitch
+   1.7%. Cost: cubes ~+2.5 min, Stitch 293 -> 299 min. Rest: spot order within a layer (Orca guarantees layer time,
+   not per-spot time). Fan speed-up timing: measured, no defect (no kept line gets a lower fan).
+   Report: work/regress/f7.check.txt.
 7. tools/check.py LABEL [--collisions]: one row per output (kept-line state diffs, wrong swap blocks, E balance,
    arrivals = how each extrusion start is reached vs the original, same-order starts only).
 Baselines: base (5 reference files), base-v (variants), work/baseline/vegeta.* (1176 -> 1130 swaps, 325 s: low gain,
 look at it with the island items below). Scarf variant: Orca CLI wrote no Z ramps even with seam_slope_type=all,
 conditional=0 - get a GUI-exported scarf file from the user.
-NEXT, in order (one fix, one measurement each): per-tool retraction for regenerated travels + E precision; printer
-type guards (refuse multi-nozzle and belt, keys from Orca's source); cooling metric (time between layers per spot vs original) then the cooling fix;
-fan speed-up timing (measure first).
+NEXT: speed plan below (densify done, timing pending); then the island items; Vegeta's low gain.
 
 Compatibility / never worse quality (found in the audit, Orca 2.3.2 source + the user's files):
 - PA: Orca's per-filament SET_PRESSURE_ADVANCE after each swap (after `; CP TOOLCHANGE END`) is hoisted to the layer
@@ -126,6 +138,14 @@ Printer types to check (user, 2026-10-27), each with an Orca CLI variant from a 
 - belt printers (new in recent Orca): layers are tilted in machine coordinates, the vertical-cone nozzle model does
   not hold; refuse unless modelled. Detection keys to be read from Orca's source, not guessed.
 For each: what a swap costs (the gain), whether the nozzle model holds, and what the file's tool change looks like.
+Speed (user, 2026-10-27: must be quick on large many-colour models, without losing quality). Rule: every speed
+change proves byte-identical output (tools/regress.py --diff) unless it is a measured, deliberate trade-off.
+Profile, Stitch (153 s, machine busy): densify 50 s (per-segment numpy calls), estimate 37 s (reader regexes 22 s,
+motion model 13 s), writer 41 s (height map 30 s = densify again), KD queries 22 s. Plan, in order:
+1. densify vectorised per path (done 2026-10-27, bit-identical samples on all cube1h43 paths; timing pending);
+2. reader: one compiled pattern per line instead of several regex passes;
+3. plan the variants (per-object on/off, staggered) in parallel processes;
+4. profile again, next hotspot. Vegeta (325 s, 79 MB) is the large-file benchmark.
 Planning (from the user, 2026-10-26):
 - Island print order: colour 1 has islands with an overhang that colour 2 would have to print under (collision),
   same with colour 1 and 2 islands that both overhang. Optimise the order of these islands.

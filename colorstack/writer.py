@@ -12,6 +12,13 @@ from .geometry import Heights
 from .model import BARRIERS
 
 PA_WORDS = {"SET_PRESSURE_ADVANCE", "M900", "M572"}
+# Orca's per-filament overrides of the printer's retraction (filament_extruder_override_keys in PrintConfig.cpp; "nil"
+# = the printer's value) -> the writer's attribute
+FILAMENT_OVERRIDES = {"filament_retraction_length": "retract", "filament_z_hop": "z_hop",
+                      "filament_retraction_speed": "retract_f", "filament_deretraction_speed": "deretract_f",
+                      "filament_retract_restart_extra": "restart_extra", "filament_retraction_minimum_travel":
+                      "min_travel", "filament_wipe": "wipe", "filament_wipe_distance": "wipe_dist",
+                      "filament_retract_before_wipe": "before_wipe"}
 # a layer's bed / chamber changes and pauses wait until every layer below it is printed
 SETTLED = {"M140", "M190", "M141", "M191"} | BARRIERS
 
@@ -93,6 +100,8 @@ class Writer:
         except ValueError:
             self.before_wipe = 0.0
         self.role_wipe = program.settings.get("role_based_wipe_speed", "0").strip() == "1"   # Orca: wipe at print speed
+        self.machine_travel = {k: getattr(self, k) for k in FILAMENT_OVERRIDES.values()}
+        self._use_filament(program.first_tool)
         # the slicer's swap blocks per tool, minus the part fan (fans follow each path)
         def own(blocks):
             return {t: [ln for ln in b if not (ln.startswith("M106") and " P" not in ln)] for t, b in blocks.items()}
@@ -116,7 +125,26 @@ class Writer:
         self.last_pts = None       # its points, for the wipe
         self.object_f = None       # feed of the last object (not tower) line: Orca's role-based wipe speed
         self.retracted = False
+        self.retracted_by = 0.0
         self.touched = set()
+
+    def _use_filament(self, tool):
+        """Retraction settings for tool: its filament's overrides where set, else the printer's."""
+        for key, attr in FILAMENT_OVERRIDES.items():
+            value = self.machine_travel[attr]
+            values = self.p.settings.get(key, "").split(",")
+            raw = values[min(tool, len(values) - 1)].strip() if tool is not None else ""
+            if raw and raw != "nil":
+                try:
+                    v = float(raw.rstrip("%"))
+                except ValueError:
+                    v = None
+                if v is not None:
+                    value = (bool(v) if attr == "wipe" else v / 100 if attr == "before_wipe"
+                             else v * 60 if attr in ("retract_f", "deretract_f") else v)
+                    if attr == "deretract_f" and v == 0:      # Orca: 0 = the retraction speed
+                        value = self.retract_f
+            setattr(self, attr, value)
 
     def emit(self, line):
         self.out.append(line)
@@ -133,6 +161,7 @@ class Writer:
         if self.retracted:
             return
         self.retracted = True
+        self.retracted_by = self.retract     # primed back by the same amount, also after a swap (as Orca does)
         pts = self.last_pts
         if not (self.wipe and self.wipe_dist > 0 and pts and len(pts) > 1 and self.pos is not None
                 and math.dist(self.pos, pts[-1]) < 1e-6) or self.firmware:
@@ -174,7 +203,7 @@ class Writer:
             if self.firmware:
                 self.emit("G11")
             else:
-                self.emit(f"G1 E{_fmt(self.retract + self.restart_extra)} F{_fmt(self.deretract_f)}")
+                self.emit(f"G1 E{_fmt(self.retracted_by + self.restart_extra)} F{_fmt(self.deretract_f)}")
                 self.f = self.deretract_f
             self.retracted = False
 
@@ -244,6 +273,7 @@ class Writer:
             self.pos, self.z, self.f = (x, y), z, f
         # the slicer rounds each E to 5 decimals: a retract undone leaves a few 1e-5 mm, a real one tenths
         self.retracted = balance < -self.retract / 2
+        self.retracted_by = -balance
         self.last_pts = None
 
     def travel(self, x, y, z, orca=None, high=None):
@@ -296,6 +326,7 @@ class Writer:
         self.emit(self.p.tool_format.format(n=tool, purge=f"{self.purge_length(self.tool, tool):.3f}"))
         self.out.extend(_block(self.tc_start, tool))
         self.tool = tool
+        self._use_filament(tool)
         self.last = None
         # the swap moves the head and may touch fans and machine state; the filament stays retracted until the next
         # travel primes it, as the slicer unretracts after T
@@ -451,8 +482,16 @@ class Writer:
             return paths, 0.0
         if t + extra >= need or not self.respect_min_layer_time:
             return self._fan(paths, k, t + extra, layer_index), 0.0
-        factor = t / (need - extra)
-        out = [replace(p, f=[max(f * factor, min(f, floor)) for f in p.f]) for p in paths]
+        # Orca's CoolingBuffer slows every extrusion proportionally, not below the minimum speed; outer walls keep
+        # their sliced speed here (a slowed outer wall shows as a line at every colour change)
+        fixed = _print_time([p for p in paths if p.type == "Outer wall"])
+        target = need - extra - fixed
+        if target > t - fixed > 0:
+            factor = (t - fixed) / target
+            out = [p if p.type == "Outer wall" else replace(p, f=[max(f * factor, min(f, floor)) for f in p.f])
+                   for p in paths]
+        else:
+            out = paths
         t2 = _print_time(out) + extra
         self.slowed += 1
         if t2 < need - 0.05:

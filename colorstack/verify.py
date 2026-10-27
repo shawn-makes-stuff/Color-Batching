@@ -8,7 +8,9 @@ import re
 
 import numpy as np
 
-from .config import CONFIG_PATH, load_config
+from .config import CONFIG_PATH, DEFAULTS, load_config
+from .estimate import estimate, file_estimate, machine_limits, swap_each
+from .parse import _parse_settings
 from .reader import load, read
 
 
@@ -294,6 +296,64 @@ def arrival_fidelity(original, processed):
         counts["wipe"] += wa != wb
         counts["route"] += abs(la - lb) > max(1.0, 0.1 * la)
     return counts
+
+
+def _layer_times(lines, lim, each, cell=0.5):
+    """When each spot got each layer: {(x cell, y cell): {z: (seconds since start, tool)}} from the timeline of the
+    estimate (a colour change counts the slicer's time per swap)."""
+    steps = []
+    estimate(lines, lim, steps)
+    at, t = {}, 0.0
+    for k, sec in steps:
+        t += each if sec is None else sec
+        at[k] = t
+    out, tool, live, typ = {}, 0, False, ""
+    for i, kind, v in read(lines):
+        if kind == "tool":
+            tool = v[0]
+        elif kind == "layer" or kind == "comment" and v.startswith("; COLORSTACK"):
+            live = True
+        elif kind == "type":
+            live = live and v != "Custom"
+            typ = v
+        elif kind == "move" and live and v.de > 0 and v.xy > 1e-9 and typ != "Prime tower":
+            for s in (0.25, 0.75):
+                key = (round((v.x0 + (v.x1 - v.x0) * s) / cell), round((v.y0 + (v.y1 - v.y0) * s) / cell))
+                out.setdefault(key, {}).setdefault(round(v.z1, 2), (at.get(i, t), tool))
+    return out
+
+
+def cooling_fidelity(original, processed, cell=0.3):
+    """Spots that get less time before the next layer lands on them than in the original, and less than the
+    slicer's minimum layer time for the filament printing that layer. Returns (spot-layers compared, worse,
+    worst [(gap processed s, gap original s, minimum s, (x, y, z))])."""
+    lines_a, lines_b = load(original), load(processed)
+    settings = _parse_settings(lines_a)
+    lim = machine_limits(settings, DEFAULTS["printer"])
+    o = estimate(lines_a, lim)
+    each, _ = swap_each(o, file_estimate(lines_a), lim)
+    need = [float(x) for x in settings.get("slow_down_layer_time", "0").split(",")]
+    on = settings.get("slow_down_for_layer_cooling", "1").split(",")
+    a, b = _layer_times(lines_a, lim, each, cell), _layer_times(lines_b, lim, each, cell)
+    compared, worse = 0, []
+    for key, layers_a in a.items():
+        layers_b = b.get(key)
+        if not layers_b:
+            continue
+        zs = sorted(z for z in layers_a if z in layers_b)
+        for z0, z1 in zip(zs, zs[1:]):
+            gap_a = layers_a[z1][0] - layers_a[z0][0]
+            gap_b = layers_b[z1][0] - layers_b[z0][0]
+            tool = layers_b[z1][1]
+            k = min(tool, len(need) - 1)
+            minimum = need[k] if on[min(tool, len(on) - 1)].strip() == "1" else 0.0
+            if gap_a <= 0 or gap_b <= 0:      # a neighbour in the same cell, not this spot's next layer
+                continue
+            compared += 1
+            if gap_b < gap_a * 0.9 and gap_b < minimum:
+                worse.append((round(gap_b, 1), round(gap_a, 1), minimum, (key[0] * cell, key[1] * cell, z1)))
+    worse.sort()
+    return compared, len(worse), worse[:5]
 
 
 def e_balance(path):

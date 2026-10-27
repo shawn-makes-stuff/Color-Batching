@@ -21,11 +21,11 @@ DEFAULTS = {
         "resolution": 0.1,
     },
     "cooling": {
-        "respect_min_layer_time": False,
+        "respect_min_layer_time": True,    # outer walls keep their speed (tools/cooling_options.py)
         "stacked_fan": True,
         "lift_wait": False,
         "min_layer_time": 0.0,     # seconds; 0 = the file's own per filament
-        "tower_between": False,
+        "tower_between": True,
     },
     "swap": {
         "lift": 1.0,
@@ -90,8 +90,9 @@ HELP = {
                         "share layers. Both ways are planned, the faster kept. Slower processing on those files."),
     "stack.resolution": ("Resolution", "mm", "Sampling step for the collision planning."),
     "cooling.respect_min_layer_time": ("Respect minimum layer time", "", "Slow regions printed again straight on top "
-                                       "of themselves down to the minimum layer time, as the slicer does. Off: keep "
-                                       "the sliced speeds (the fan rule still applies)."),
+                                       "of themselves down to the minimum layer time, as the slicer does. Outer walls "
+                                       "keep their sliced speed. Off: keep all sliced speeds (the fan rule still "
+                                       "applies)."),
     "cooling.stacked_fan": ("Fan for stacked regions", "", "Raise the part fan on regions printed again straight on "
                             "top of themselves, by the slicer's own fan rule."),
     "cooling.lift_wait": ("Lift and wait", "", "If a stacked region is still under the minimum layer time at "

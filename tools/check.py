@@ -13,7 +13,8 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from colorstack.config import DEFAULTS  # noqa: E402
-from colorstack.verify import arrival_fidelity, check, e_balance, fidelity, swap_fidelity  # noqa: E402
+from colorstack.verify import (arrival_fidelity, check, cooling_fidelity, e_balance, fidelity,  # noqa: E402
+                               swap_fidelity)
 
 from regress import OUT, SETTINGS  # noqa: E402
 
@@ -37,6 +38,8 @@ def report(label, collisions=False):
         row += (f" | arrivals {c['matched']} ({c['reordered']} reordered): retract {c['retract']} hop {c['hop']} "
                 f"wipe {c['wipe']} "
                 f"route {c['route']}")
+        n, worse, _ = cooling_fidelity(str(ROOT / src), str(out))
+        row += f" | cooled worse {100 * worse / max(n, 1):.1f}%"
         if collisions:
             problems, _, _ = check(str(ROOT / src), str(out), nozzle)
             kinds = {}

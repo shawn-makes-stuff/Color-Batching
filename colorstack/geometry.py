@@ -45,16 +45,17 @@ class Grid:
 
 
 def densify(p, step):
-    """Samples along a path: (points Nx2, segment index, t within segment)."""
-    pts, seg, ts = [], [], []
-    for i in range(len(p.e)):
-        (x0, y0), (x1, y1) = p.pts[i], p.pts[i + 1]
-        n = max(1, int(math.hypot(x1 - x0, y1 - y0) / step))
-        t = (np.arange(n) + 0.5) / n
-        pts.append(np.column_stack([x0 + (x1 - x0) * t, y0 + (y1 - y0) * t]))
-        seg.append(np.full(n, i))
-        ts.append(t)
-    return np.vstack(pts), np.concatenate(seg), np.concatenate(ts)
+    """Samples along a path: (points Nx2, segment index, t within segment). n samples per segment at
+    t = (k + 0.5) / n, all segments at once (the same arithmetic as one segment at a time)."""
+    pts = p.pts
+    counts = np.array([max(1, int(math.hypot(b[0] - a[0], b[1] - a[1]) / step)) for a, b in zip(pts, pts[1:])])
+    seg = np.repeat(np.arange(len(counts)), counts)
+    starts = np.cumsum(counts) - counts
+    n = counts[seg]
+    t = (np.arange(len(seg)) - starts[seg] + 0.5) / n
+    a = np.asarray(pts, dtype=float)
+    p0, d = a[:-1][seg], (a[1:] - a[:-1])[seg]
+    return np.column_stack([p0[:, 0] + d[:, 0] * t, p0[:, 1] + d[:, 1] * t]), seg, t
 
 
 def split(p, seg, ts, mask):

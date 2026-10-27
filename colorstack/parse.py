@@ -52,6 +52,7 @@ def parse(path_in):
     postamble = lines[end:]
 
     prog = Program(settings, preamble, postamble, [], 0, header)
+    _check_printer(prog)
     tool = 0
     fmt_set = accel_seen = False
     prog.stats_info = any(ln.startswith("SET_PRINT_STATS_INFO") for ln in lines)
@@ -302,6 +303,18 @@ def parse(path_in):
         "restart_extra": first_setting(settings, "retract_restart_extra", 0.0),     # extra primed after a retract
     }
     return prog
+
+
+def _check_printer(prog):
+    """Refuse printers the nozzle model does not cover (Orca's own settings, PrintConfig.cpp): more than one nozzle
+    (multi-nozzle heads, IDEX / parallel printing, toolchangers: Orca marks none of them apart in the file, and an
+    idle nozzle beside the active one is not modelled) and belt printers (tilted layers)."""
+    nozzles = prog.setting_list("nozzle_diameter", default=[])
+    if len(nozzles) > 1:
+        raise ValueError(f"the printer has {len(nozzles)} nozzles; ColorStack supports one nozzle with a filament "
+                         "changer only")
+    if first_setting(prog.settings, "belt_printer", 0) == 1:
+        raise ValueError("belt printers are not supported (tilted layers)")
 
 
 def _state_key(word, line):
