@@ -73,7 +73,11 @@ C++ PORT (branch color-batching, plan in docs/CPP_PLAN.md; build: cmake -S cpp -
 - step 4 estimate + summary: tools/dump_finish.py vs finish.exe (estimate both files, anchor, M73 + header) -
   identical figures and finished files on 9 files. The Python pipeline now writes LF (was CR LF on Windows by text
   mode; outputs otherwise byte-identical).
-- next: 5 geometry/plan, 6 staggered/tower/threads, 7 CLI + app, 8 CI.
+- step 5 planner (KD tree matching scipy, Samples, split, interface mask, plan, tower.compensate): identical bands
+  and G-code on 15 runs (v/*, cube, doorbell, scarf_grid, stitch, per_object cube + stitch, Vegeta) via
+  tools/dump_bands.py vs plan_bands.exe. Planning alone: small 15.1 -> 1.6 s, same 66.4 -> 13.4 s (machine loaded).
+- next: 6 staggered/RunTower/threads/cancel, 7 CLI + app, 8 CI. User 2026-10-28: write all of it, then ONE build
+  and one methodical test pass per feature (no per-step comparison runs).
 - exactness notes: math.hypot/dist = CPython vector_norm (cpp/core/pymath.hpp); numpy hypot = the C library's;
   Python dict insertion order kept where it matters (fans, states, swap blocks); round() via to_chars/from_chars.
 

@@ -25,6 +25,8 @@ struct Band {
     std::vector<Unit> order;
     std::vector<std::vector<std::pair<Unit, PathP>>> work;      // per band layer: (owner, path)
     double ceded_mm = 0, visible_ceded_mm = 0;
+    std::vector<std::vector<Unit>> origin;                      // per layer, per piece: the owner it started with
+    std::map<Unit, std::pair<double, double>> ceded_by;         // first owner -> (ceded mm, visible ceded mm)
     std::vector<int> tools() const;
 };
 
