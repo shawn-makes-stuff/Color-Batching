@@ -26,7 +26,8 @@ def main(argv=None):
     t0 = time.time()
     r = run(a.input, out, cfg)
     print(f"tower wipes kept {r['tower_wipes_kept']}, "
-          f"turned into grid {r['tower_wipes_to_grid']}")
+          f"turned into grid {r['tower_wipes_to_grid']}"
+          + (f", {r['tower_purge_short']} swaps short of their flush on the tower" if r['tower_purge_short'] else ""))
     print(f"cooling: {r['cooled_groups']} stacked regions slowed to the minimum layer time"
           + (f", {r['cooled_short']} still short at minimum speed" if r['cooled_short'] else "")
           + f"; fan raised on {r['fanned_paths']} lines" + (f"; {r['waits']} lift-and-waits" if r['waits'] else "")

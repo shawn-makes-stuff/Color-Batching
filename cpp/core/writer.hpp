@@ -60,8 +60,6 @@ private:
     struct MachineTravel { double retract, z_hop, retract_f, deretract_f, restart_extra, min_travel, wipe_dist, before_wipe; bool wipe; };
     MachineTravel machine{};
     std::vector<double> area, flow_ratio, max_vol;
-    std::optional<std::vector<std::vector<double>>> flush;
-    double flush_mult;
     std::optional<double> nozzle_t;
     std::vector<int> left;
     int settled = 0;
@@ -92,7 +90,6 @@ private:
 
     void use_filament(std::optional<int> t);
     void emit(const std::string& line) { out.push_back(line); }
-    double purge_length(int a, int b) const;
     void retract_move();
     void plain_retract();
     void deretract();

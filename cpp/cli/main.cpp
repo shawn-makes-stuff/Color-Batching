@@ -70,7 +70,9 @@ int main(int argc, char** argv) {
         auto i = [&](const char* k) { return r.get(k)->i; };
         auto d = [&](const char* k) { return r.get(k)->d; };
         auto b = [&](const char* k) { return r.get(k)->b; };
-        std::printf("tower wipes kept %lld, turned into grid %lld\n", i("tower_wipes_kept"), i("tower_wipes_to_grid"));
+        std::printf("tower wipes kept %lld, turned into grid %lld", i("tower_wipes_kept"), i("tower_wipes_to_grid"));
+        if (i("tower_purge_short")) std::printf(", %lld swaps short of their flush on the tower", i("tower_purge_short"));
+        std::printf("\n");
         std::string cooling = "cooling: " + std::to_string(i("cooled_groups")) + " stacked regions slowed to the minimum layer time";
         if (i("cooled_short")) cooling += ", " + std::to_string(i("cooled_short")) + " still short at minimum speed";
         cooling += "; fan raised on " + std::to_string(i("fanned_paths")) + " lines";

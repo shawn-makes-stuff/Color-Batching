@@ -133,13 +133,6 @@ Writer::Writer(const Program& program, const Nozzle& nz, const WriterOptions& op
     for (double d : diam) area.push_back(PI * d * d / 4);
     flow_ratio = list_default(p, "filament_flow_ratio", {1.0});
     max_vol = list_default(p, "filament_max_volumetric_speed", {});
-    size_t n = diam.size();
-    auto flat = p.setting_list("flush_volumes_matrix");
-    if (flat && !flat->empty() && flat->size() == n * n) {
-        flush.emplace();
-        for (size_t i = 0; i < n; i++) flush->emplace_back(flat->begin() + i * n, flat->begin() + (i + 1) * n);
-    }
-    flush_mult = list_default(p, "flush_multiplier", {1.0})[0];
     nozzle_t = p.first_temp;
     // cooling (Orca/Bambu or PrusaSlicer names)
     min_layer_time = list_or(p, "slow_down_layer_time", "slowdown_below_layer_time");
@@ -150,7 +143,7 @@ Writer::Writer(const Program& program, const Nozzle& nz, const WriterOptions& op
     }
     min_layer_source = min_layer_time ? "file" : "none";
     if (o.min_layer_time > 0) {
-        min_layer_time = std::vector<double>(n, o.min_layer_time);
+        min_layer_time = std::vector<double>(diam.size(), o.min_layer_time);
         min_layer_source = "override";
     }
     min_speed = list_or(p, "slow_down_min_speed", "min_print_speed");
@@ -267,10 +260,6 @@ void Writer::use_filament(std::optional<int> t) {
     }
 }
 
-double Writer::purge_length(int a, int b) const {
-    if (!flush || std::max(a, b) >= int(flush->size())) return 0.0;
-    return (*flush)[a][b] * flush_mult / area[std::min<size_t>(size_t(b), area.size() - 1)];
-}
 
 void Writer::retract_move() {
     if (retracted) return;
@@ -459,7 +448,7 @@ void Writer::change_tool(int t, std::optional<double> temp, const State& st) {
     emit("; COLORSTACK TOOLCHANGE T" + std::to_string(tool) + " -> T" + std::to_string(t));
     set_temp(temp);
     for (auto& ln : block_for(tc_end, tool)) out.push_back(ln);
-    emit(replace_all(replace_all(p.tool_format, "{n}", std::to_string(t)), "{purge}", fixed(purge_length(tool, t), 3)));
+    emit(replace_all(replace_all(p.tool_format, "{n}", std::to_string(t)), "{purge}", fixed(p.flush_length(tool, t), 3)));
     for (auto& ln : block_for(tc_start, t)) out.push_back(ln);
     tool = t;
     use_filament(t);
@@ -746,11 +735,18 @@ std::vector<std::string> Writer::write(const std::vector<Band>& bands, const std
                         first_path ? first_path->state : empty);
             int t = unit.tool;
             // tower right after the swap; with tower_between only the wipe, walls and grid between layers
-            auto late = [&](const PathP& pp) { return o.tower_between && pp->tower && (*pp->tower == "wall" || *pp->tower == "grid"); };
+            // (layers below its highest wipe it finishes first: that wipe goes down on them)
+            int hi = -1;
+            for (size_t j = 0; j < nl; j++)
+                for (auto& pp : items[j])
+                    if (pp->tower == "wipe") hi = int(j);
+            auto late = [&](const PathP& pp, size_t j) {
+                return o.tower_between && pp->tower && (*pp->tower == "wall" || *pp->tower == "grid") && int(j) >= hi;
+            };
             for (size_t j = 0; j < nl; j++)
                 for (auto& pp : items[j]) {
-                    if (pp->tower && !late(pp)) first[j].push_back(pp);
-                    if (late(pp)) between[j].push_back(pp);
+                    if (pp->tower && !late(pp, j)) first[j].push_back(pp);
+                    if (late(pp, j)) between[j].push_back(pp);
                 }
             for (size_t j = 0; j < nl; j++) {
                 const Layer& L = p.layers[band.layers[j]];

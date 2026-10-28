@@ -64,7 +64,7 @@ def _variant(prog, nozzle, cfg, lim, staggered, per_object, progress=None):
         bands, wipes = plan_staggered(prog, nozzle, opts, lambda f: report(split * f, stage))
     else:
         bands = plan(prog, nozzle, opts, lambda f: report(split * f, stage))
-        wipes = compensate(prog, bands)
+        wipes = compensate(prog, bands, nozzle)
     report(split, "Writing and timing")
     notes = [PROCESSED,
              f"COLORSTACK bands={len(bands)} multi_tool_bands={sum(len(b.tools) > 1 for b in bands)} "
@@ -93,6 +93,7 @@ def _variant(prog, nozzle, cfg, lim, staggered, per_object, progress=None):
         "waits": writer.waited,
         "tower_wipes_kept": wipes[0],
         "tower_wipes_to_grid": wipes[1],
+        "tower_purge_short": wipes[2],
     }}
 
 

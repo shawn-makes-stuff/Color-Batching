@@ -86,7 +86,7 @@ int main(int argc, char** argv) {
         bands = cb::plan_staggered(prog, nozzle, opts).first;
     } else {
         bands = cb::plan(prog, nozzle, opts);
-        cb::compensate(prog, bands);
+        cb::compensate(prog, bands, nozzle);
     }
     std::fprintf(stderr, "planned %zu bands in %.2f s\n", bands.size(),
                  std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());

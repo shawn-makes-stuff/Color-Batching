@@ -1,5 +1,6 @@
 #include "model.hpp"
 
+#include <algorithm>
 #include <cstdlib>
 
 #include "pymath.hpp"
@@ -83,6 +84,17 @@ std::optional<std::vector<double>> Program::setting_list(const std::string& key)
         start = comma + 1;
     }
     return out;
+}
+
+double Program::flush_length(int a, int b) const {
+    auto diam = setting_list("filament_diameter");
+    if (!diam) diam = std::vector<double>{1.75};
+    auto flat = setting_list("flush_volumes_matrix");
+    size_t n = diam->size();
+    if (!flat || flat->empty() || flat->size() != n * n || size_t(std::max(a, b)) >= n) return 0.0;
+    auto mult = setting_list("flush_multiplier");
+    double d = (*diam)[size_t(b)];
+    return (*flat)[size_t(a) * n + size_t(b)] * (mult ? (*mult)[0] : 1.0) / (3.141592653589793 * d * d / 4);
 }
 
 double first_setting(const std::map<std::string, std::string>& settings, const std::string& key, double fallback) {

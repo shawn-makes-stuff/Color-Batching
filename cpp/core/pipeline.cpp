@@ -62,12 +62,12 @@ VariantResult variant(const Program& prog, const Nozzle& nozzle, const Json& cfg
     const std::string stage = staggered ? "Planning staggered colours" : "Planning colour bands";
     auto planned = [&](double f) { report(split * f, stage); };
     std::vector<Band> bands;
-    std::pair<int, int> wipes;
+    std::tuple<int, int, int> wipes;
     if (staggered) {
         std::tie(bands, wipes) = plan_staggered(prog, nozzle, opts, planned);
     } else {
         bands = plan(prog, nozzle, opts, planned);
-        wipes = compensate(prog, bands);
+        wipes = compensate(prog, bands, nozzle);
     }
     report(split, "Writing and timing");
     double ceded = 0, visible = 0;
@@ -112,8 +112,9 @@ VariantResult variant(const Program& prog, const Nozzle& nozzle, const Json& cfg
     s["cooled_short"] = writer.short_;
     s["fanned_paths"] = writer.fanned;
     s["waits"] = writer.waited;
-    s["tower_wipes_kept"] = wipes.first;
-    s["tower_wipes_to_grid"] = wipes.second;
+    s["tower_wipes_kept"] = std::get<0>(wipes);
+    s["tower_wipes_to_grid"] = std::get<1>(wipes);
+    s["tower_purge_short"] = std::get<2>(wipes);
     return r;
 }
 

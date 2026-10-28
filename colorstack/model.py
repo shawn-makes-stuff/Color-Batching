@@ -117,6 +117,16 @@ class Program:
         except ValueError:
             return default
 
+    def flush_length(self, a, b):
+        """Filament mm Orca flushes changing from tool a to b ({flush_length}): flush_volumes_matrix x
+        flush_multiplier over the new filament's area; 0 without a matrix."""
+        diam = self.setting_list("filament_diameter", default=[1.75])
+        flat = self.setting_list("flush_volumes_matrix")
+        n = len(diam)
+        if not flat or len(flat) != n * n or max(a, b) >= n:
+            return 0.0
+        return flat[a * n + b] * self.setting_list("flush_multiplier", default=[1.0])[0] / (math.pi * diam[b] * diam[b] / 4)
+
 
 def first_setting(settings, key, default):
     """First value of a per-filament / per-mode setting."""

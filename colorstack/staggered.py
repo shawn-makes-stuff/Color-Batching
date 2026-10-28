@@ -55,7 +55,7 @@ def plan_staggered(program, nozzle, opts, progress=None):
                 return band
         return None
 
-    tower = RunTower(program)
+    tower = RunTower(program, nozzle.clear_height)
     barriers = [L.index for L in layers if L.barrier]
     done = _progress_at(layers) if progress else None
     loaded, last, top = program.first_tool, None, 0     # top: layers below are printed by somebody
@@ -100,7 +100,7 @@ def plan_staggered(program, nozzle, opts, progress=None):
                         mine[j].append(p)
             own[lo + j] = keep
         top = max(top, b)
-        tower_paths = (tower.wipe() if u[0] != loaded else []) + tower.complete(min(eff(v) for v in units))
+        tower_paths = (tower.wipe(loaded, u[0], b) if u[0] != loaded else []) + tower.complete(min(eff(v) for v in units))
         start = min([e] + [j for j, _ in tower_paths])     # u has nothing to print below e
         end = max([b] + [j + 1 for j, _ in tower_paths])    # above b: layers with nothing but tower
         work = [[] for _ in range(end - start)]
@@ -112,4 +112,4 @@ def plan_staggered(program, nozzle, opts, progress=None):
         bands.append(Band(layers[start:end], [u], work, ceded, vis))
         loaded, last = u[0], u
         samples.clear_answers()
-    return bands, (tower.kept, tower.replaced)
+    return bands, (tower.kept, tower.replaced, tower.short)

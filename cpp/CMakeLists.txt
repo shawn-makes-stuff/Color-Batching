@@ -19,10 +19,14 @@ target_include_directories(cbcore PUBLIC core)
 target_link_libraries(cbcore PUBLIC Threads::Threads)
 
 # the tool and the app
-add_executable(color-batching cli/main.cpp)
+if(WIN32)
+  enable_language(RC)
+  set(ICON app/icon.rc)      # the exe icon
+endif()
+add_executable(color-batching cli/main.cpp ${ICON})
 target_link_libraries(color-batching cbcore)
 
-add_executable(color-batching-app app/main.cpp)
+add_executable(color-batching-app app/main.cpp ${ICON})
 target_link_libraries(color-batching-app cbcore)
 if(WIN32)
   target_link_libraries(color-batching-app ws2_32 shell32)

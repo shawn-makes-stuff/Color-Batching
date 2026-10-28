@@ -74,10 +74,6 @@ class Writer:
         self.area = [math.pi * d * d / 4 for d in diam]
         self.flow_ratio = setting("filament_flow_ratio", default=[1.0])
         self.max_vol = setting("filament_max_volumetric_speed", default=[])     # mm3/s, per filament
-        n = len(diam)
-        flat = setting("flush_volumes_matrix")
-        self.flush = [flat[i * n:(i + 1) * n] for i in range(n)] if flat and len(flat) == n * n else None
-        self.flush_mult = setting("flush_multiplier", default=[1.0])[0]
         self.nozzle_t = program.first_temp
         self.left = []             # paths still to print, per layer index (write counts them)
         self.settled = 0           # layers below are all printed
@@ -89,7 +85,7 @@ class Writer:
             self.min_layer_time = [t if on[min(k, len(on) - 1)] else 0.0 for k, t in enumerate(self.min_layer_time)]
         self.min_layer_source = "file" if self.min_layer_time else "none"
         if min_layer_time > 0:
-            self.min_layer_time = [float(min_layer_time)] * n
+            self.min_layer_time = [float(min_layer_time)] * len(diam)
             self.min_layer_source = "override"
         self.min_speed = setting("slow_down_min_speed") or setting("min_print_speed")
         self.fan_min = setting("fan_min_speed")
@@ -162,11 +158,6 @@ class Writer:
 
     def emit(self, line):
         self.out.append(line)
-
-    def purge_length(self, a, b):
-        if self.flush is None or max(a, b) >= len(self.flush):
-            return 0.0
-        return self.flush[a][b] * self.flush_mult / self.area[min(b, len(self.area) - 1)]
 
     def retract_move(self):
         """Retract like the slicer: part in place, the rest wiping back along the last line (planar lines only:
@@ -345,7 +336,7 @@ class Writer:
         self.emit(f"; COLORSTACK TOOLCHANGE T{self.tool} -> T{tool}")
         self.set_temp(temp)
         self.out.extend(_block(self.tc_end, self.tool))
-        self.emit(self.p.tool_format.format(n=tool, purge=f"{self.purge_length(self.tool, tool):.3f}"))
+        self.emit(self.p.tool_format.format(n=tool, purge=f"{self.p.flush_length(self.tool, tool):.3f}"))
         self.out.extend(_block(self.tc_start, tool))
         self.tool = tool
         self._use_filament(tool)
@@ -586,9 +577,12 @@ class Writer:
                                  first_path.state if first_path else ())
                 tool = unit[0]
                 # tower right after the swap; with tower_between only the wipe, walls and grid between layers
+                # (layers below its highest wipe it finishes first: that wipe goes down on them)
                 late = ("wall", "grid") if self.tower_between else ()
-                first = [[p for p in ps if p.tower is not None and p.tower not in late] for ps in items]
-                between = [[p for p in ps if p.tower in late] for ps in items]
+                hi = max((j for j, ps in enumerate(items) if any(p.tower == "wipe" for p in ps)), default=-1)
+                first = [[p for p in ps if p.tower is not None and (p.tower not in late or j < hi)]
+                         for j, ps in enumerate(items)]
+                between = [[p for p in ps if p.tower in late and j >= hi] for j, ps in enumerate(items)]
                 for layer, ps in zip(band.layers, first):
                     if ps:
                         self.layer_start(layer)

@@ -97,6 +97,9 @@ struct Program {
     const State* state_at(int tool, int index, const std::string& type) const;
     // the setting's comma-separated values as floats, none when missing or not numbers
     std::optional<std::vector<double>> setting_list(const std::string& key) const;
+    // filament mm Orca flushes changing from tool a to b ({flush_length}): flush_volumes_matrix x flush_multiplier
+    // over the new filament's area; 0 without a matrix
+    double flush_length(int a, int b) const;
 };
 
 // first value of a per-filament / per-mode setting

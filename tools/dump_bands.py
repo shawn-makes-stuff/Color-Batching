@@ -67,7 +67,7 @@ if __name__ == "__main__":
         bands, _ = plan_staggered(prog, nozzle, opts)
     else:
         bands = plan(prog, nozzle, opts)
-        compensate(prog, bands)
+        compensate(prog, bands, nozzle)
     with open(bands_out, "w", encoding="utf-8", newline="\n") as f:
         w = f.write
         w(f"bands\t{len(bands)}\n")

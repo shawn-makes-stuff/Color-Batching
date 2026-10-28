@@ -49,8 +49,18 @@ Every output carries the comment `; Processed by ColorStack (<repo url>)` (parse
 that has it (tools/test_guards.py).
 Full audit 2026-10-28 (19 files, vegeta/same skipped): all checks clean except overhead flags on flush_into 1,
 stitch 2, stitch_stg 3 (all <= 0.015 mm, wall beside wall) and scarf_grid 31 (as above).
-Open: tower-only purge printers (Bambu/Prusa, no {flush_length}): a kept swap reuses a tower block sized for another
-colour pair (may under-purge). Not tested: wipe_tower_no_sparse_layers (Orca would not slice the variant).
+Prime tower (2026-10-28): Orca sizes each wipe block by its pair's flush only with purge_in_prime_tower +
+single_extruder_multi_material on a Type 2 tower (else every block is prime_volume and reusing blocks is safe; Type 1
+= Bambu, flush via {flush_length_N}, swap blocks not handled yet). Then the bands share one running tower
+(tower.RunTower): each swap takes the wipe lines in order, up the layers, until it has its own pair's flush, the tower
+at most clear_height above the band's top; the footprint is never changed. Test file samples/compat/v/tower_purge
+(make_variants): before 115 of 187 kept swaps under Orca's own purge level (0.93 of the flush), now 13 (banded) / 0
+(staggered); outputs of other files byte-identical. Scratchpad checks: purge_cmp.py, tower_lead.py.
+Open (noted, user 2026-10-28): those 13 swaps are at z 23-28 where the planner makes 3 swaps per 1-layer band and
+Orca's tower holds ~2 per layer; on a tower-only printer (tool change without {purge}) they under-purge. Reported as
+tower_purge_short (CLI line). Letting the tower run further ahead (10.6 mm, 0 collisions) needs real nozzle numbers.
+Not tested: wipe_tower_no_sparse_layers (Orca would not slice the variant).
+Exe icon: cpp/app/colorstack.ico (from viewer/icon.png) via cpp/app/icon.rc.
 
 ## Non-planar: removed (2026-10-16)
 The user dropped all non-planar features (smooth tops, colour joins, undersides on support): no visible gain, out of

@@ -41,6 +41,8 @@ VARIANTS = {
     "interlock": {"interlocking_beam": "1"},
     "infill_comb": {"infill_combination": "1"},
     "no_tower": {"enable_prime_tower": "0"},
+    # the flush itself in the tower (Prusa MMU style): each wipe block sized for its own colour pair
+    "tower_purge": {"purge_in_prime_tower": "1", "single_extruder_multi_material": "1"},
 }
 
 if __name__ == "__main__":

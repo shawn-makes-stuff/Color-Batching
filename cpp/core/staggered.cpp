@@ -11,7 +11,7 @@
 
 namespace cb {
 
-std::pair<std::vector<Band>, std::pair<int, int>> plan_staggered(const Program& program, const Nozzle& nozzle,
+std::pair<std::vector<Band>, std::tuple<int, int, int>> plan_staggered(const Program& program, const Nozzle& nozzle,
                                                                  const Options& opts,
                                                                  const std::function<void(double)>& progress) {
     Samples samples(opts.resolution * 2);
@@ -90,7 +90,7 @@ std::pair<std::vector<Band>, std::pair<int, int>> plan_staggered(const Program& 
         return std::nullopt;
     };
 
-    RunTower tower(program);
+    RunTower tower(program, nozzle.clear_height);
     std::vector<int> barriers;
     for (const auto& L : layers)
         if (L.barrier()) barriers.push_back(L.index);
@@ -176,7 +176,7 @@ std::pair<std::vector<Band>, std::pair<int, int>> plan_staggered(const Program& 
         }
         top = std::max(top, b);
         TowerPaths tower_paths;
-        if (u.tool != loaded) tower_paths = tower.wipe();
+        if (u.tool != loaded) tower_paths = tower.wipe(loaded, u.tool, b);
         int upto = n;
         for (const auto& v : units) upto = std::min(upto, eff(v));
         for (auto& tp : tower.complete(upto)) tower_paths.push_back(std::move(tp));
@@ -203,7 +203,7 @@ std::pair<std::vector<Band>, std::pair<int, int>> plan_staggered(const Program& 
         last = u;
         samples.clear_answers();
     }
-    return {std::move(bands), {tower.kept, tower.replaced}};
+    return {std::move(bands), {tower.kept, tower.replaced, tower.short_}};
 }
 
 }  // namespace cb
