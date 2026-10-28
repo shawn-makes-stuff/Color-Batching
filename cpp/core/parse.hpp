@@ -12,6 +12,9 @@ namespace cb {
 // the slicer's "; key = value" lines, the first of each key
 std::map<std::string, std::string> parse_settings(const std::vector<std::string>& lines);
 
+// written as a comment into every output; parse refuses a file that has it
+inline constexpr const char* PROCESSED = "Processed by ColorStack (https://github.com/shawn-makes-stuff/ColorStack)";
+
 // throws std::runtime_error with the reason for a file ColorStack cannot process
 Program parse(const std::string& path);
 

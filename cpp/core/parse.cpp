@@ -221,12 +221,20 @@ void check_printer(const Program& prog) {
         throw std::runtime_error("belt printers are not supported (tilted layers)");
     if (first_setting(prog.settings, "spiral_mode", 0) == 1)
         throw std::runtime_error("spiral vase mode is not supported");
+    // Orca print_sequence / PrusaSlicer complete_objects: each object finished before the next; layers of different
+    // objects at one Z would be merged and the gantry would meet the finished ones
+    auto seq = prog.settings.find("print_sequence");
+    if ((seq != prog.settings.end() && py_strip(seq->second) == "by object") ||
+        first_setting(prog.settings, "complete_objects", 0) == 1)
+        throw std::runtime_error("sequential printing (one object after another) is not supported");
 }
 
 }  // namespace
 
 Program parse(const std::string& path_in) {
     std::vector<std::string> lines = load(path_in);
+    if (std::find(lines.begin(), lines.end(), "; " + std::string(PROCESSED)) != lines.end())
+        throw std::runtime_error("this file was already processed by ColorStack; open the original");
     Program prog;
     prog.settings = parse_settings(lines);
     if (!lines.empty() && starts(lines[0], "; HEADER_BLOCK_START")) {

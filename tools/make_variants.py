@@ -32,6 +32,15 @@ VARIANTS = {
     "swap_blocks": {"filament_start_gcode": [START + f"\nM118 START T{i}" for i in range(4)],
                     "filament_end_gcode": [f"M118 END T{i}\n" for i in range(4)]},
     "surface": {"ironing_type": "top", "fuzzy_skin": "external", "fan_kickstart": "0.3"},
+    # settings that change what the order, the tower or a tool change means (2026-10-28 audit)
+    "sequential": {"print_sequence": "by object"},
+    "flush_into": {"enable_support": "1", "flush_into_infill": "1", "flush_into_support": "1"},
+    "timelapse": {"timelapse_type": "1"},
+    "no_sparse": {"wipe_tower_no_sparse_layers": "1"},
+    "indep_support": {"enable_support": "1", "independent_support_layer_height": "1"},
+    "interlock": {"interlocking_beam": "1"},
+    "infill_comb": {"infill_combination": "1"},
+    "no_tower": {"enable_prime_tower": "0"},
 }
 
 if __name__ == "__main__":

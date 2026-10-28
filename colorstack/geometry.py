@@ -133,6 +133,7 @@ class Samples:
         self.trees = {}
         self.ramps = {}
         self.answers = {}      # (tree, samples, bound) -> distances, for one band (clear_answers)
+        self.segs = {}         # id(tree) -> per sample: its segment's start, end (N x 2 each), width, segment id
 
     def of(self, p):
         hit = self.cache.get(id(p))
@@ -150,6 +151,16 @@ class Samples:
             pts = [self.of(p)[0] for p in paths]
             hit = (tuple(paths), cKDTree(np.vstack(pts)) if pts else None)
             self.trees[key] = hit
+            if pts:
+                a, b, w, g = [], [], [], []
+                for k, p in enumerate(paths):
+                    _, seg, _ = self.of(p)
+                    xy = np.asarray(p.pts, dtype=float)
+                    a.append(xy[seg])
+                    b.append(xy[seg + 1])
+                    w.append(np.full(len(seg), p.width))
+                    g.append(seg + sum(len(q.pts) for q in paths[:k]))      # unique per (path, segment)
+                self.segs[id(hit[1])] = (np.vstack(a), np.vstack(b), np.concatenate(w), np.concatenate(g))
         return hit[1]
 
 
@@ -185,8 +196,70 @@ class Samples:
             self.answers[key] = hit
         return hit
 
+    def pieces(self, p):
+        """Per sample of path p, the ends of the piece of p it stands for: between the cuts split() makes (halfway to
+        the next sample on its segment, else the segment's end) and the path's ends. (L, R), N x 2 each."""
+        pts, seg, ts = self.of(p)
+        xy = np.asarray(p.pts, dtype=float)
+        a, b = xy[seg[:-1]], xy[seg[:-1] + 1]
+        t = ((ts[:-1] + ts[1:]) / 2)[:, None]
+        cut = np.where((seg[:-1] == seg[1:])[:, None], a + (b - a) * t, xy[seg[1:]])
+        return np.vstack([xy[:1], cut]), np.vstack([cut, xy[-1:]])
+
+    def gaps(self, tree, p):
+        """Per sample of path p: the least distance from the piece of p it stands for (between the cuts split() makes,
+        halfway to the next sample on its segment or at the segment's end, and the path's ends) to a line of the
+        tree's paths, less both half widths; exact on both lines' segments, inf with none near. Kept until
+        clear_answers. A point of a piece is under one step from its sample, and a point on a tree segment under one
+        step from that segment's nearest sample, so every segment within reach has a sample in the query radius."""
+        key = (id(tree), id(p), "gaps")
+        hit = self.answers.get(key)
+        if hit is None:
+            pts = self.of(p)[0]
+            L, R = self.pieces(p)
+            A, B, W, G = self.segs[id(tree)]
+            near = tree.query_ball_point(pts, (p.width + W.max()) / 2 + 2 * self.step)
+            idx = np.fromiter((i for c in near for i in c), int)
+            if not len(idx):
+                hit = np.full(len(pts), np.inf)
+            else:
+                _, first = np.unique(G[idx], return_index=True)      # one sample per segment
+                c = idx[first]
+                hit = (seg_dist(L, R, A[c], B[c]) - (p.width + W[c]) / 2).min(axis=1)
+            self.answers[key] = hit
+        return hit
+
     def clear_answers(self):
         self.answers.clear()
+
+
+def _to_seg(P, a, b):
+    """Distance from each point P (N x 2) to each segment a-b (M x 2 each): N x M."""
+    d = b - a
+    n2 = d[:, 0] * d[:, 0] + d[:, 1] * d[:, 1]
+    px, py = P[:, 0:1], P[:, 1:2]
+    t = ((px - a[:, 0]) * d[:, 0] + (py - a[:, 1]) * d[:, 1]) / np.where(n2 > 0, n2, 1.0)
+    t = np.where(n2 > 0, np.clip(t, 0.0, 1.0), 0.0)
+    return np.hypot(px - (a[:, 0] + t * d[:, 0]), py - (a[:, 1] + t * d[:, 1]))
+
+
+def seg_dist(L, R, a, b):
+    """Least distance between each segment L-R (N x 2 each) and each segment a-b (M x 2 each): N x M."""
+    dist = np.minimum(np.minimum(_to_seg(L, a, b), _to_seg(R, a, b)),
+                      np.minimum(_to_seg(a, L, R).T, _to_seg(b, L, R).T))
+    return np.where(_crosses(L, R, a, b), 0.0, dist)
+
+
+def _crosses(L, R, a, b):
+    """Whether each segment L-R (N x 2 each) properly crosses each segment a-b (M x 2 each): N x M."""
+    ex, ey = (R - L)[:, 0:1], (R - L)[:, 1:2]
+    dx, dy = b[:, 0] - a[:, 0], b[:, 1] - a[:, 1]
+    lx, ly, rx, ry = L[:, 0:1], L[:, 1:2], R[:, 0:1], R[:, 1:2]
+    o1 = ex * (a[:, 1] - ly) - ey * (a[:, 0] - lx)
+    o2 = ex * (b[:, 1] - ly) - ey * (b[:, 0] - lx)
+    o3 = dx * (ly - a[:, 1]) - dy * (lx - a[:, 0])
+    o4 = dx * (ry - a[:, 1]) - dy * (rx - a[:, 0])
+    return (o1 * o2 < 0) & (o3 * o4 < 0)
 
 
 def _nearest(tree, pts, bound):

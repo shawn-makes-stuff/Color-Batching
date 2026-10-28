@@ -3,12 +3,12 @@
 ## Results (contact 0.2; cube/Stitch cone 55) — all verified: 0 collisions, 0 mm outer-surface colour change
 | file | swaps | time (slicer-anchored) |
 |---|---|---|
-| Anycubic cube (work/cube_34m_print_1h2m_flush.gcode, lift-and-wait on) | 57 -> 31 | 1h35m56s -> 1h06m34s |
-| cube_sphere (with the since-removed non-planar tops, max_angle 22) | 91 -> 47 | 2h23m16s -> 1h32m44s |
-| samples/cube1h43 (Orca, default contact) | 77 -> 41 | 1h43m19s -> 1h06m56s |
-| samples/stitch | 318 -> 181 | 7h20m49s -> 5h02m50s |
-| samples/stitch, stack.staggered=true (off by default since 3bac17d) | 318 -> 148 | 7h20m49s -> 4h31m32s |
-| samples/stitch, staggered + local_lift + tower_between | 318 -> 148 | 7h20m49s -> 4h23m12s |
+| Anycubic cube (work/cube_34m_print_1h2m_flush.gcode, lift-and-wait on) | 57 -> 35 | 1h35m56s -> 1h11m10s |
+| cube_sphere (with the since-removed non-planar tops, max_angle 22; before the under rule) | 91 -> 47 | 2h23m16s -> 1h32m44s |
+| samples/cube1h43 (Orca, default contact) | 77 -> 47 | 1h43m19s -> 1h12m41s |
+| samples/stitch | 318 -> 229 | 7h20m49s -> 5h49m10s |
+| samples/stitch, stack.staggered=true (off by default since 3bac17d) | 318 -> 196 | 7h20m49s -> 5h14m24s |
+| samples/stitch, staggered + local_lift + tower_between (before the under rule) | 318 -> 148 | 7h20m49s -> 4h23m12s |
 
 Staggered gives nothing on the 2-colour files (the band plan is kept). Stitch processing: 81 s before staggered,
 129 s with it (KD trees cached by path set: 95% of builds were repeats; per-object pass skipped when no tool spans
@@ -30,6 +30,27 @@ options off, all four regression outputs are byte-identical to before.
 First real print (Anycubic cube, Kobra 3 + ACE, 2026-10-16): 31 swaps as planned, no issues; took 1h29m vs the
 1h02m estimate. The ACE swap takes ~2 min, the slicer counts 66 s. Decision: keep the file-based estimate, no
 per-printer compensation.
+
+## Never print under another colour (2026-10-28, branch color-batching, Python and C++ byte-identical)
+Strict verify check `overhead` (no contact allowance): no line may go down under earlier plastic overlapping it by
+more than Orca's own neighbour overlap (h * (1 - pi/4), Flow.cpp) + grid step. Before: cube 245 spots, Stitch 4099.
+plan_band hands a piece of earlier-colour line to the later colour T where it overlaps T's line below by more than
+that + UNDER_TOL 0.02 (any height difference):
+- lower layers in the band: `Samples.gaps`, exact segment-to-segment over the whole piece each sample stands for
+  (between split()'s cuts), so nothing between samples or at cut points is missed (tools/test_gaps.py);
+- scarf seams: a loop's end passes over its own ramp start; if the ramp piece is handed over, the end over it goes too
+  (`_over_ramp`); a ramp handed to T on a layer also takes other paths' lines overlapping it (Orca's infill/wall
+  overlap), the layer planned again until stable.
+Cost: cube 41 -> 47 swaps, Stitch 181 -> 229, small 167 -> 187. Remaining verify flags, measured exactly
+(scratchpad exact2.py): <= 0.021 mm past Orca's overlap (wall beside wall, stitch / flush_into), scarf ramp pieces
+meeting end to end at a colour cut (0.011 mm higher, nothing above), and one Orca-own spot (also in the original).
+Also: sequential printing (print_sequence by object / complete_objects) refused (parse, tools/test_guards.py).
+Every output carries the comment `; Processed by ColorStack (<repo url>)` (parse.PROCESSED); parse refuses a file
+that has it (tools/test_guards.py).
+Full audit 2026-10-28 (19 files, vegeta/same skipped): all checks clean except overhead flags on flush_into 1,
+stitch 2, stitch_stg 3 (all <= 0.015 mm, wall beside wall) and scarf_grid 31 (as above).
+Open: tower-only purge printers (Bambu/Prusa, no {flush_length}): a kept swap reuses a tower block sized for another
+colour pair (may under-purge). Not tested: wipe_tower_no_sparse_layers (Orca would not slice the variant).
 
 ## Non-planar: removed (2026-10-16)
 The user dropped all non-planar features (smooth tops, colour joins, undersides on support): no visible gain, out of

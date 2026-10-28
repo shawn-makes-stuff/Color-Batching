@@ -29,20 +29,26 @@ Samples1 densify(const Path& p, double step);
 // point closer than the bound (strictly, compared squared), inf when there is none.
 class KDTree {
 public:
-    KDTree(std::vector<std::pair<double, double>> pts);
+    struct Pt {
+        double x, y;
+        int id;              // the point's index in the list the tree was built from
+    };
+    explicit KDTree(const std::vector<std::pair<double, double>>& pts);
     double nearest(double qx, double qy, double bound) const;
+    void within(double qx, double qy, double r, std::vector<int>& ids) const;     // ids of the points within r
     size_t size() const { return pts_.size(); }
-    const std::vector<std::pair<double, double>>& points() const { return pts_; }   // in tree order
+    const std::vector<Pt>& points() const { return pts_; }   // in tree order
 
 private:
     struct Node {
         double lo[2], hi[2];
         int begin, end, left = -1, right = -1;
     };
-    std::vector<std::pair<double, double>> pts_;
+    std::vector<Pt> pts_;
     std::vector<Node> nodes_;
     int build(int begin, int end);
     void search(int n, double qx, double qy, double& best) const;
+    void collect(int n, double qx, double qy, double r2, std::vector<int>& ids) const;
 };
 
 // _nearest: per sample, the distance to tree's nearest point (inf beyond bound or without a tree)
@@ -51,6 +57,16 @@ std::vector<double> nearest(const KDTree* tree, const Samples1& s, double bound)
 // split path p where the per-sample mask changes: [(flag, piece)]; a scarf ramp's Z per point is cut with it (a
 // piece that ends up flat has none)
 std::vector<std::pair<bool, PathP>> split(const Path& p, const Samples1& s, const std::vector<char>& mask);
+
+// least distance between segments l-r and a-b
+double seg_dist(double lx, double ly, double rx, double ry, double ax, double ay, double bx, double by);
+
+// per sample of p, the ends of the piece of p it stands for: between the cuts split() makes (halfway to the next sample
+// on its segment, else the segment's end) and the path's ends
+struct Pieces {
+    std::vector<std::pair<double, double>> l, r;
+};
+Pieces pieces(const Path& p, const Samples1& s);
 
 // also hand over unflagged runs shorter than min_samples (no slivers needing their own travel)
 std::vector<char> absorb_short_runs(const std::vector<char>& mask, double min_samples);
@@ -72,7 +88,15 @@ public:
     const KDTree* tree(const std::vector<PathP>& paths);    // none for no paths
     const Ramp* ramp(const std::vector<PathP>& paths);      // none where no path dips
     const std::vector<double>& nearest(const KDTree* tree, const PathP& p, double bound);
-    void clear_answers() { answers_.clear(); }
+    // per sample of p: the least distance from the piece of p it stands for (between the cuts split() makes, halfway
+    // to the next sample on its segment or at the segment's end, and the path's ends) to a line of the tree's paths,
+    // less both half widths; exact on both lines' segments, inf with none near; kept. A point of a piece is under
+    // one step from its sample, and a point on a tree segment under one step from that segment's nearest sample.
+    const std::vector<double>& gaps(const KDTree* tree, const PathP& p);
+    void clear_answers() {
+        answers_.clear();
+        gap_answers_.clear();
+    }
 
 private:
     struct KeyHash {
@@ -96,6 +120,16 @@ private:
     std::unordered_map<std::vector<const Path*>, Kept<KDTree>, KeyHash> trees_;
     std::unordered_map<std::vector<const Path*>, Kept<Ramp>, KeyHash> ramps_;
     std::unordered_map<AnswerKey, std::vector<double>, AnswerHash> answers_;
+    std::unordered_map<AnswerKey, std::vector<double>, AnswerHash> gap_answers_;
+    struct Seg {         // a tree sample's segment and line width; g tells segments apart
+        double ax, ay, bx, by, w;
+        size_t g;
+    };
+    struct Segs {
+        std::vector<Seg> of;     // per tree point id
+        double wmax;
+    };
+    std::unordered_map<const KDTree*, Segs> segs_;
 };
 
 struct Grid {

@@ -78,7 +78,7 @@ VariantResult variant(const Program& prog, const Nozzle& nozzle, const Json& cfg
         multi += b.tools().size() > 1;
     }
     char buf[256];
-    std::vector<std::string> notes;
+    std::vector<std::string> notes{PROCESSED};
     notes.push_back("COLORSTACK bands=" + std::to_string(bands.size()) + " multi_tool_bands=" + std::to_string(multi) +
                     " staggered=" + (staggered ? "True" : "False"));
     std::snprintf(buf, sizeof buf, "COLORSTACK ceded_mm=%.1f visible_ceded_mm=%.1f", ceded, visible);

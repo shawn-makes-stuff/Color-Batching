@@ -54,8 +54,8 @@ std::pair<std::vector<Band>, std::pair<int, int>> plan_staggered(const Program& 
         for (int j = lo; j < std::min(n, lo + max_k); j++) {
             const KDTree *a = tree(j, u), *b = tree(j, v);
             if (!a || !b) continue;
-            for (auto [x, y] : a->points())
-                if (b->nearest(x, y, reach) < reach) return true;
+            for (const auto& q : a->points())
+                if (b->nearest(q.x, q.y, reach) < reach) return true;
         }
         return false;
     };

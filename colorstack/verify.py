@@ -463,6 +463,8 @@ def check(original, processed, nozzle, res=0.05):
     zs = sorted({round(m[5], 3) for m in moves(original) if m[6] > 0 and m[8] and m[3:5] != m[0:2]})
     first_z = zs[0]
     layer_h = min((b - a for a, b in zip(zs, zs[1:]) if b - a > 0.05), default=0.2)
+    overlap = layer_h * (1 - 0.25 * math.pi) + res      # neighbouring lines' own overlap, plus the grid step
+    overhead = []
     printed = {}   # (z, cell) -> index of the extrusion that printed it, for the late-support check
     order = 0
     for (ax, ay, az, bx, by, bz, de, w, live, _typ) in proc:
@@ -489,6 +491,14 @@ def check(original, processed, nozzle, res=0.05):
                 hit |= (dz > nozzle["clear_height"]) & (dist < 3.0)
                 if hit.any():
                     problems.append(("extrude", round(cx, 2), round(cy, 2), round(cz, 3), float(dz[hit].max())))
+                # plastic already standing higher than this line over the line's own footprint, overlapping it by
+                # more than Orca's neighbouring lines do (spacing = width - height * (1 - pi/4), Flow.cpp): the line
+                # would print under it. No contact allowance: the nozzle cannot go through a layer.
+                over = (win > cz + 1e-3) & (dist < w / 2 - overlap)
+                if over.any():
+                    # (..., height above the line, how far into the line's half width it reaches)
+                    overhead.append(("overhead", round(cx, 2), round(cy, 2), round(cz, 3), float((win[over] - cz).max()),
+                                     round(w / 2 - float(dist[over].min()), 3)))
                 # nothing under the line centre yet: remember it; it is only a problem if a lower layer is
                 # printed there later (support that came too late), not a genuine overhang of the model
                 below = H[int(round((cy - y0) / res)), int(round((cx - x0) / res))]
@@ -513,6 +523,7 @@ def check(original, processed, nozzle, res=0.05):
         if printed.get(key, -1) > when:
             late.append(("late-support", round(cx, 2), round(cy, 2), bz, layer_h))
     problems.extend(late)
+    problems.extend(overhead)
 
     def totals(ms):
         model = tower = 0.0

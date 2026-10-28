@@ -5,7 +5,7 @@ from pathlib import Path
 
 from .estimate import anchor, estimate, file_estimate, machine_limits, swap_each
 from .geometry import Nozzle
-from .parse import parse
+from .parse import PROCESSED, parse
 from .plan import Options, plan
 from .reader import load
 from .staggered import plan_staggered
@@ -66,7 +66,8 @@ def _variant(prog, nozzle, cfg, lim, staggered, per_object, progress=None):
         bands = plan(prog, nozzle, opts, lambda f: report(split * f, stage))
         wipes = compensate(prog, bands)
     report(split, "Writing and timing")
-    notes = [f"COLORSTACK bands={len(bands)} multi_tool_bands={sum(len(b.tools) > 1 for b in bands)} "
+    notes = [PROCESSED,
+             f"COLORSTACK bands={len(bands)} multi_tool_bands={sum(len(b.tools) > 1 for b in bands)} "
              f"staggered={staggered}",
              f"COLORSTACK ceded_mm={sum(b.ceded_mm for b in bands):.1f} "
              f"visible_ceded_mm={sum(b.visible_ceded_mm for b in bands):.1f}",

@@ -34,17 +34,19 @@ Samples1 densify(const Path& p, double step) {
     return s;
 }
 
-KDTree::KDTree(std::vector<std::pair<double, double>> pts) : pts_(std::move(pts)) {
+KDTree::KDTree(const std::vector<std::pair<double, double>>& pts) {
+    pts_.reserve(pts.size());
+    for (size_t k = 0; k < pts.size(); k++) pts_.push_back({pts[k].first, pts[k].second, int(k)});
     if (!pts_.empty()) build(0, int(pts_.size()));
 }
 
 int KDTree::build(int begin, int end) {
     Node nd{{INFINITY, INFINITY}, {-INFINITY, -INFINITY}, begin, end};
     for (int k = begin; k < end; k++) {
-        nd.lo[0] = std::min(nd.lo[0], pts_[k].first);
-        nd.hi[0] = std::max(nd.hi[0], pts_[k].first);
-        nd.lo[1] = std::min(nd.lo[1], pts_[k].second);
-        nd.hi[1] = std::max(nd.hi[1], pts_[k].second);
+        nd.lo[0] = std::min(nd.lo[0], pts_[k].x);
+        nd.hi[0] = std::max(nd.hi[0], pts_[k].x);
+        nd.lo[1] = std::min(nd.lo[1], pts_[k].y);
+        nd.hi[1] = std::max(nd.hi[1], pts_[k].y);
     }
     int at = int(nodes_.size());
     nodes_.push_back(nd);
@@ -52,7 +54,7 @@ int KDTree::build(int begin, int end) {
     bool by_x = nd.hi[0] - nd.lo[0] >= nd.hi[1] - nd.lo[1];
     int mid = (begin + end) / 2;
     std::nth_element(pts_.begin() + begin, pts_.begin() + mid, pts_.begin() + end,
-                     [by_x](const auto& a, const auto& b) { return by_x ? a.first < b.first : a.second < b.second; });
+                     [by_x](const Pt& a, const Pt& b) { return by_x ? a.x < b.x : a.y < b.y; });
     int l = build(begin, mid);
     int r = build(mid, end);
     nodes_[at].left = l;
@@ -74,7 +76,7 @@ void KDTree::search(int n, double qx, double qy, double& best) const {
     const Node& nd = nodes_[n];
     if (nd.left < 0) {
         for (int k = nd.begin; k < nd.end; k++) {
-            double dx = qx - pts_[k].first, dy = qy - pts_[k].second;
+            double dx = qx - pts_[k].x, dy = qy - pts_[k].y;
             double d = dx * dx + dy * dy;      // scipy's sqeuclidean for 2 dimensions
             if (d < best) best = d;
         }
@@ -96,6 +98,24 @@ double KDTree::nearest(double qx, double qy, double bound) const {
     double b2 = bound * bound, best = b2;
     if (!nodes_.empty() && box2(nodes_[0].lo, nodes_[0].hi, qx, qy) < best) search(0, qx, qy, best);
     return best < b2 ? std::sqrt(best) : INFINITY;
+}
+
+void KDTree::collect(int n, double qx, double qy, double r2, std::vector<int>& ids) const {
+    const Node& nd = nodes_[n];
+    if (box2(nd.lo, nd.hi, qx, qy) > r2) return;
+    if (nd.left < 0) {
+        for (int k = nd.begin; k < nd.end; k++) {
+            double dx = qx - pts_[k].x, dy = qy - pts_[k].y;
+            if (dx * dx + dy * dy <= r2) ids.push_back(pts_[k].id);
+        }
+        return;
+    }
+    collect(nd.left, qx, qy, r2, ids);
+    collect(nd.right, qx, qy, r2, ids);
+}
+
+void KDTree::within(double qx, double qy, double r, std::vector<int>& ids) const {
+    if (!nodes_.empty()) collect(0, qx, qy, r * r, ids);
 }
 
 std::vector<double> nearest(const KDTree* tree, const Samples1& s, double bound) {
@@ -257,11 +277,21 @@ const KDTree* Samples::tree(const std::vector<PathP>& paths) {
         Kept<KDTree> kept{paths, nullptr};
         if (!paths.empty()) {
             std::vector<std::pair<double, double>> pts;
+            Segs segs{{}, -INFINITY};
+            size_t base = 0;      // segment ids unique per (path, segment)
             for (const auto& p : paths) {
                 const Samples1& s = of(p);
-                for (size_t k = 0; k < s.x.size(); k++) pts.emplace_back(s.x[k], s.y[k]);
+                for (size_t k = 0; k < s.x.size(); k++) {
+                    pts.emplace_back(s.x[k], s.y[k]);
+                    auto [ax, ay] = p->pts[size_t(s.seg[k])];
+                    auto [bx, by] = p->pts[size_t(s.seg[k]) + 1];
+                    segs.of.push_back({ax, ay, bx, by, *p->width, base + size_t(s.seg[k])});
+                    segs.wmax = std::max(segs.wmax, *p->width);
+                }
+                base += p->pts.size();
             }
-            kept.value = std::make_unique<KDTree>(std::move(pts));
+            kept.value = std::make_unique<KDTree>(pts);
+            segs_.emplace(kept.value.get(), std::move(segs));
         }
         it = trees_.emplace(std::move(key), std::move(kept)).first;
     }
@@ -289,7 +319,7 @@ const Samples::Ramp* Samples::ramp(const std::vector<PathP>& paths) {
             if (low_min != INFINITY) drop = std::max(drop, p->z - low_min);
         }
         Kept<Ramp> kept{paths, nullptr};
-        if (!pts.empty()) kept.value = std::make_unique<Ramp>(Ramp{KDTree(std::move(pts)), drop});
+        if (!pts.empty()) kept.value = std::make_unique<Ramp>(Ramp{KDTree(pts), drop});
         it = ramps_.emplace(std::move(key), std::move(kept)).first;
     }
     return it->second.value.get();
@@ -300,6 +330,69 @@ const std::vector<double>& Samples::nearest(const KDTree* tree, const PathP& p, 
     auto it = answers_.find(key);
     if (it == answers_.end()) it = answers_.emplace(key, cb::nearest(tree, of(p), bound)).first;
     return it->second;
+}
+
+namespace {
+double to_seg(double px, double py, double ax, double ay, double bx, double by) {     // point to segment a-b
+    double dx = bx - ax, dy = by - ay;
+    double n2 = dx * dx + dy * dy;
+    double t = n2 > 0 ? std::min(std::max(((px - ax) * dx + (py - ay) * dy) / n2, 0.0), 1.0) : 0.0;
+    return std::hypot(px - (ax + t * dx), py - (ay + t * dy));      // numpy hypot = the C library's
+}
+}  // namespace
+
+double seg_dist(double lx, double ly, double rx, double ry, double ax, double ay, double bx, double by) {
+    double ex = rx - lx, ey = ry - ly, dx = bx - ax, dy = by - ay;
+    double o1 = ex * (ay - ly) - ey * (ax - lx);
+    double o2 = ex * (by - ly) - ey * (bx - lx);
+    double o3 = dx * (ly - ay) - dy * (lx - ax);
+    double o4 = dx * (ry - ay) - dy * (rx - ax);
+    if (o1 * o2 < 0 && o3 * o4 < 0) return 0.0;      // they cross
+    return std::min(std::min(to_seg(lx, ly, ax, ay, bx, by), to_seg(rx, ry, ax, ay, bx, by)),
+                    std::min(to_seg(ax, ay, lx, ly, rx, ry), to_seg(bx, by, lx, ly, rx, ry)));
+}
+
+Pieces pieces(const Path& p, const Samples1& s) {
+    const size_t n = s.x.size();
+    Pieces out;
+    out.l.push_back(p.pts.front());
+    for (size_t k = 0; k + 1 < n; k++) {
+        std::pair<double, double> cut = p.pts[size_t(s.seg[k + 1])];
+        if (s.seg[k] == s.seg[k + 1]) {
+            double t = (s.t[k] + s.t[k + 1]) / 2;
+            auto [ax, ay] = p.pts[size_t(s.seg[k])];
+            auto [bx, by] = p.pts[size_t(s.seg[k]) + 1];
+            cut = {ax + (bx - ax) * t, ay + (by - ay) * t};
+        }
+        out.r.push_back(cut);
+        out.l.push_back(cut);
+    }
+    out.r.push_back(p.pts.back());
+    return out;
+}
+
+const std::vector<double>& Samples::gaps(const KDTree* tree, const PathP& p) {
+    AnswerKey key{tree, p.get(), 0.0};
+    auto it = gap_answers_.find(key);
+    if (it != gap_answers_.end()) return it->second;
+    const Samples1& s = of(p);
+    const Segs& segs = segs_.at(tree);
+    const double width = *p->width;
+    const double r = (width + segs.wmax) / 2 + 2 * step;
+    const Pieces pc = pieces(*p, s);
+    std::vector<double> out(s.x.size(), INFINITY);
+    std::vector<int> ids;
+    for (size_t k = 0; k < s.x.size(); k++) {
+        auto [lx, ly] = pc.l[k];
+        auto [rx, ry] = pc.r[k];
+        ids.clear();
+        tree->within(s.x[k], s.y[k], r, ids);
+        for (int id : ids) {     // a segment seen twice gives the same answer: the least is the same
+            const Seg& g = segs.of[size_t(id)];
+            out[k] = std::min(out[k], seg_dist(lx, ly, rx, ry, g.ax, g.ay, g.bx, g.by) - (width + g.w) / 2);
+        }
+    }
+    return gap_answers_.emplace(key, std::move(out)).first->second;
 }
 
 Grid::Grid(const Program& program, double res_) : res(res_) {

@@ -31,8 +31,13 @@ def _parse_settings(lines):
     return out
 
 
+PROCESSED = "Processed by ColorStack (https://github.com/shawn-makes-stuff/ColorStack)"    # written as a comment
+
+
 def parse(path_in):
     lines = load(path_in)
+    if "; " + PROCESSED in lines:
+        raise ValueError("this file was already processed by ColorStack; open the original")
     settings = _parse_settings(lines)
     header = []
     if lines and lines[0].startswith("; HEADER_BLOCK_START"):
@@ -352,6 +357,11 @@ def _check_printer(prog):
         raise ValueError("belt printers are not supported (tilted layers)")
     if first_setting(prog.settings, "spiral_mode", 0) == 1:
         raise ValueError("spiral vase mode is not supported")
+    # Orca print_sequence / PrusaSlicer complete_objects: each object finished before the next; layers of different
+    # objects at one Z would be merged and the gantry would meet the finished ones
+    if (prog.settings.get("print_sequence", "").strip() == "by object"
+            or first_setting(prog.settings, "complete_objects", 0) == 1):
+        raise ValueError("sequential printing (one object after another) is not supported")
 
 
 def _state_key(word, line):
