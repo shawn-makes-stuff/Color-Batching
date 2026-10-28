@@ -9,14 +9,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from colorstack.config import DEFAULTS, apply  # noqa: E402
-from colorstack.geometry import Nozzle  # noqa: E402
-from colorstack.parse import parse  # noqa: E402
-from colorstack.pipeline import materials  # noqa: E402
-from colorstack.plan import Options, plan  # noqa: E402
-from colorstack.staggered import plan_staggered  # noqa: E402
-from colorstack.tower import compensate  # noqa: E402
-from colorstack.writer import Writer  # noqa: E402
+from color_batching.config import DEFAULTS, apply  # noqa: E402
+from color_batching.geometry import Nozzle  # noqa: E402
+from color_batching.parse import parse  # noqa: E402
+from color_batching.pipeline import materials  # noqa: E402
+from color_batching.plan import Options, plan  # noqa: E402
+from color_batching.staggered import plan_staggered  # noqa: E402
+from color_batching.tower import compensate  # noqa: E402
+from color_batching.writer import Writer  # noqa: E402
 
 NOTES = ["COLORSTACK writer comparison"]
 

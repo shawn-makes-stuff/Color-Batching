@@ -7,11 +7,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from colorstack.config import DEFAULTS  # noqa: E402
-from colorstack.estimate import anchor, estimate, file_estimate, machine_limits  # noqa: E402
-from colorstack.parse import _parse_settings  # noqa: E402
-from colorstack.reader import load  # noqa: E402
-from colorstack.summary import stamp_header, stamp_progress  # noqa: E402
+from color_batching.config import DEFAULTS  # noqa: E402
+from color_batching.estimate import anchor, estimate, file_estimate, machine_limits  # noqa: E402
+from color_batching.parse import _parse_settings  # noqa: E402
+from color_batching.reader import load  # noqa: E402
+from color_batching.summary import stamp_header, stamp_progress  # noqa: E402
 
 
 def b(v):

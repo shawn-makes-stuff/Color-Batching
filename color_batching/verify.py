@@ -1,6 +1,6 @@
 """Independent check of a processed file, replaying every move against a height map of the plastic so far:
 nozzle cone and clear height on extrusion, tip on travel, late support, extrusion totals, swap clearance and
-outer surface colours.  python -m colorstack.verify original.gcode processed.gcode [--contact X]
+outer surface colours.  python -m color_batching.verify original.gcode processed.gcode [--contact X]
 """
 import argparse
 import math

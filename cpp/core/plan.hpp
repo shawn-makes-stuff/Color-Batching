@@ -1,5 +1,5 @@
 // Band planning: each tool prints several layers in a row without the nozzle hitting earlier material (port of
-// colorstack/plan.py).
+// color_batching/plan.py).
 //
 // Within a band the units print one after another, each bottom-up; material of an earlier unit that a later nozzle
 // would hit is ceded to the later unit. Ceding a visible surface moves a colour edge: allowed up to

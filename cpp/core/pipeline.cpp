@@ -1,4 +1,4 @@
-// Port of colorstack/pipeline.py. The variants run in threads (Python: processes).
+// Port of color_batching/pipeline.py. The variants run in threads (Python: processes).
 #include "pipeline.hpp"
 
 #include <atomic>

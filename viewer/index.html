@@ -338,7 +338,7 @@ const ROLES = [
   ["Support transition", 0, 64, 0],    // SupportTransition
 ];
 const ROLE_OF = Object.fromEntries(ROLES.map((r, i) => [r[0], i]));   // ;TYPE: string -> role (anything else -> 0)
-// other slicers' feature names -> Orca's (same table as colorstack/reader.py)
+// other slicers' feature names -> Orca's (same table as color_batching/reader.py)
 const TYPE_ALIAS = { "WALL-OUTER": "Outer wall", "WALL-INNER": "Inner wall", "SKIN": "Top surface", "FILL": "Sparse infill",
   "SUPPORT": "Support", "SUPPORT-INTERFACE": "Support interface", "SKIRT": "Skirt", "PRIME-TOWER": "Prime tower",
   "External perimeter": "Outer wall", "Perimeter": "Inner wall", "Overhang perimeter": "Overhang wall",
@@ -489,7 +489,7 @@ function parse(text) {
     }
   }
   flush();
-  // per swap, as colorstack/estimate.py: (slicer total - motion) / swaps, else the profile's load + unload
+  // per swap, as color_batching/estimate.py: (slicer total - motion) / swaps, else the profile's load + unload
   const setting = (k) => (text.match(new RegExp("^; " + k + " = (.*)$", "m")) || [])[1];
   const num = (k, d) => parseFloat((setting(k) || "").split(",")[0]) || d;
   const est = text.match(/^;\s*estimated printing time(?: \(normal mode\))?\s*=\s*(.+)$/m) || text.match(/^;TIME:(\d+)/m);
@@ -1191,7 +1191,7 @@ if ([...$("viewMode").options].some((o) => o.value === recall("viewMode"))) setM
   if (["original", "colorstack", "side", "slider"].includes(c)) setCompare(c); }
 $("swapS").onchange = () => { prints.forEach((p) => p && timeline(p)); update(); };
 
-// ---------- app mode (settings + process), only when colorstack.app serves this page ----------
+// ---------- app mode (settings + process), only when color_batching.app serves this page ----------
 let appMode = false, current = null, dropFile = null;
 let source = null;      // the imported file's handle: Export opens the save dialog in its folder
 async function initApp() {

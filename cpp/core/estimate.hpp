@@ -1,4 +1,4 @@
-// Print-time estimate, the same for the original and the processed file (port of colorstack/estimate.py): Klipper's
+// Print-time estimate, the same for the original and the processed file (port of color_batching/estimate.py): Klipper's
 // planner (trapezoids, lookahead, square-corner junctions) with the machine limits the slicer wrote into the file.
 #pragma once
 

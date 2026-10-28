@@ -1,4 +1,4 @@
-// Port of colorstack/writer.py, method for method.
+// Port of color_batching/writer.py, method for method.
 #include "writer.hpp"
 
 #include <algorithm>

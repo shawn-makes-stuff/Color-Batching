@@ -1,4 +1,4 @@
-// Port of colorstack/plan.py (and pipeline.materials).
+// Port of color_batching/plan.py (and pipeline.materials).
 #include "plan.hpp"
 
 #include <algorithm>

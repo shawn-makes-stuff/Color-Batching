@@ -1,4 +1,4 @@
-"""Dump a parsed program (colorstack.parse) as text, floats as their 64-bit patterns, in the format of
+"""Dump a parsed program (color_batching.parse) as text, floats as their 64-bit patterns, in the format of
 cpp/tools/dump_program.cpp.  python tools/dump_program.py in.gcode out.txt"""
 import struct
 import sys
@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from colorstack.parse import parse  # noqa: E402
+from color_batching.parse import parse  # noqa: E402
 
 
 def b(v):

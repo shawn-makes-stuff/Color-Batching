@@ -1,4 +1,4 @@
-// Port of colorstack/estimate.py.
+// Port of color_batching/estimate.py.
 #include "estimate.hpp"
 
 #include <algorithm>

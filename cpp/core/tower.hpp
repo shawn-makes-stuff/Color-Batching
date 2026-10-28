@@ -1,4 +1,4 @@
-// Shrink Orca's prime tower to the swaps that are left (port of colorstack/tower.py).
+// Shrink Orca's prime tower to the swaps that are left (port of color_batching/tower.py).
 //
 // A tower layer is walls, one wipe block per tool change, and a sparse grid over the rest. Each remaining swap keeps
 // a wipe: the n-th tool swapped in during a band (counting a swap at its start) wipes on the n-th block of the

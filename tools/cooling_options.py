@@ -9,9 +9,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from colorstack.config import DEFAULTS, apply  # noqa: E402
-from colorstack.pipeline import run  # noqa: E402
-from colorstack.verify import cooling_fidelity, fidelity  # noqa: E402
+from color_batching.config import DEFAULTS, apply  # noqa: E402
+from color_batching.pipeline import run  # noqa: E402
+from color_batching.verify import cooling_fidelity, fidelity  # noqa: E402
 
 OPTIONS = {
     "off (default now)": {},

@@ -1,4 +1,4 @@
-// Port of colorstack/summary.py.
+// Port of color_batching/summary.py.
 #include "summary.hpp"
 
 #include <charconv>

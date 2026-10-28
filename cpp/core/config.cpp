@@ -1,4 +1,4 @@
-// Port of colorstack/config.py.
+// Port of color_batching/config.py.
 #include "config.hpp"
 
 #include <cmath>

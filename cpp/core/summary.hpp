@@ -1,5 +1,5 @@
 // Rewrite the file's own summary (times, colour changes, filament used) and progress lines (M73) (port of
-// colorstack/summary.py).
+// color_batching/summary.py).
 #pragma once
 
 #include <string>

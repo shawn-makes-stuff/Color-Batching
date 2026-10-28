@@ -1,6 +1,6 @@
 # Color Batching in C++
 
-The Python package `colorstack/` is the reference. The C++ implementation replaces it as the standalone tool and later
+The Python package `color_batching/` is the reference. The C++ implementation replaces it as the standalone tool and later
 becomes the native OrcaSlicer slicing mode, so it is written the way Orca's own code is: C++17, CMake, no exotic
 dependencies.
 
@@ -17,7 +17,7 @@ cpp/
   CMakeLists.txt
   core/            library, one file per Python module: reader, model, parse, geometry, plan, staggered, tower,
                    writer, estimate, summary, config
-  cli/             color-batching in.gcode -o out.gcode --set section.key=value  (same options as python -m colorstack)
+  cli/             color-batching in.gcode -o out.gcode --set section.key=value  (same options as python -m color_batching)
   app/             desktop shell: the existing viewer/index.html in a native webview, talking to the core directly
   tests/           runs the CLI on the reference files and compares with the Python outputs
 ```
@@ -33,7 +33,7 @@ colorstack.toml; webview/webview (MIT) for the app shell. Nothing else.
 5. geometry (sampling, split, interface mask, height map) and plan (bands, nearest-plastic answers cache): compare
    the bands (layers, unit order, ceded mm) per file, then whole outputs.
 6. staggered, tower compensation, variants in parallel (threads instead of processes), cancellation.
-7. CLI parity with `python -m colorstack`; then the app shell (viewer + settings + Optimize + export).
+7. CLI parity with `python -m color_batching`; then the app shell (viewer + settings + Optimize + export).
 8. CI: GitHub Actions builds on Windows, macOS and Linux runners; artifacts per OS. macOS signing / notarization
    needs an Apple developer account (user's decision).
 

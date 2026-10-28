@@ -1,4 +1,4 @@
-// The parsed print (port of colorstack/model.py): layers of extrusion paths, with the slicer's settings and the state
+// The parsed print (port of color_batching/model.py): layers of extrusion paths, with the slicer's settings and the state
 // each path printed under. Paths are shared pointers: the planner tells paths apart by identity, as Python does by
 // object. Tables whose iteration order matters in Python keep insertion order here.
 #pragma once

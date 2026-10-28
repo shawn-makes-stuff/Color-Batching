@@ -8,9 +8,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from colorstack.config import DEFAULTS, apply  # noqa: E402
-from colorstack.pipeline import run  # noqa: E402
-from colorstack.reader import load, read  # noqa: E402
+from color_batching.config import DEFAULTS, apply  # noqa: E402
+from color_batching.pipeline import run  # noqa: E402
+from color_batching.reader import load, read  # noqa: E402
 
 ALL_PLA = "; filament_type = PLA;PLA;PLA;PLA"
 

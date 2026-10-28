@@ -1,4 +1,4 @@
-// Port of colorstack/tower.py.
+// Port of color_batching/tower.py.
 #include "tower.hpp"
 
 #include <algorithm>

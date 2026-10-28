@@ -1,4 +1,4 @@
-# Color Batching status (repo shawn-makes-stuff/Color-Batching; Python package still colorstack/)
+# Color Batching status (repo shawn-makes-stuff/Color-Batching; Python package still color_batching/)
 
 ## Results (contact 0.2; cube/Stitch cone 55) — all verified: 0 collisions, 0 mm outer-surface colour change
 | file | swaps | time (slicer-anchored) |
@@ -60,7 +60,7 @@ Open (noted, user 2026-10-28): those 13 swaps are at z 23-28 where the planner m
 Orca's tower holds ~2 per layer; on a tower-only printer (tool change without {purge}) they under-purge. Reported as
 tower_purge_short (CLI line). Letting the tower run further ahead (10.6 mm, 0 collisions) needs real nozzle numbers.
 Not tested: wipe_tower_no_sparse_layers (Orca would not slice the variant).
-Exe icon: cpp/app/colorstack.ico (from viewer/icon.png) via cpp/app/icon.rc.
+Exe icon: cpp/app/color_batching.ico (from viewer/icon.png) via cpp/app/icon.rc.
 Defaults (2026-10-28, after 0.1.0 shipped contact 0.0 = almost no batching: cube 77->75, Stitch 318->317):
 contact 0.2 (all measured results + the first real print) and staggered on (Stitch 229->196 swaps, -35 min, +5 s
 processing; Vegeta 958->822, -2h27m, processing 50 s -> 440 s; staggered output not checked on Vegeta). Swept with
@@ -119,10 +119,10 @@ C++ PORT (branch color-batching, plan in docs/CPP_PLAN.md; build: cmake -S cpp -
   tools/dump_bands.py vs plan_bands.exe. Planning alone: small 15.1 -> 1.6 s, same 66.4 -> 13.4 s (machine loaded).
 - steps 6-8 written in one go, then one build (0 warnings) and one test pass (2026-10-28), all identical:
   - staggered + RunTower: bands and G-code identical on small, filaments, cube, stitch (dump_bands.py staggered).
-  - CLI (cpp/build/Release/color-batching.exe, same options as python -m colorstack): output file AND printed
+  - CLI (cpp/build/Release/color-batching.exe, same options as python -m color_batching): output file AND printed
     summary identical on 17 runs: v/*, cube, doorbell, scarf_grid, stitch, stitch staggered, cube no per-object,
     --set overrides, Vegeta. Whole run: Vegeta 197 -> 36 s, stitch 26 -> 4 s, v/* ~50 -> ~5 s.
-  - app (color-batching-app.exe, same HTTP API as colorstack/app.py; opens the default browser): GET pages /
+  - app (color-batching-app.exe, same HTTP API as color_batching/app.py; opens the default browser): GET pages /
     config / state / progress / icons / 404s equal to the Python app; POST config saves the same TOML as
     save_config (quirks included); upload + process + download = Python pipeline (summary + file); cancel ends
     both variant threads in 0.8 s (409); busy 409; Send to printer checked against a fake Moonraker (fields, file
@@ -239,7 +239,7 @@ Compatibility / never worse quality (found in the audit, Orca 2.3.2 source + the
 - Cooling: stacked regions either uncooled (default) or outer walls slowed (speed-contrast lines);
   dont_slow_down_outer_wall ignored.
 - Scarf seams (Z-changing extrusion) refused.
-- Measuring tool: `colorstack.verify --fidelity` (per extruded mm: tool, type, speed, flow, PA, fans, temperature,
+- Measuring tool: `color_batching.verify --fidelity` (per extruded mm: tool, type, speed, flow, PA, fans, temperature,
   accel, M220/M221 against the original; extrusion starts per feature).
 Target (user, 2026-10-27): a native OrcaSlicer slicing mode (not a plugin), maybe an upstream PR; this Python
 version is the reference implementation and test bench. Follow the slicer's settings even at a small time cost.
@@ -302,7 +302,7 @@ Planning (from the user, 2026-10-26):
   layers showed as thin lines); support is never handed to another tool (band shortened instead). Support test:
   12 -> 6 swaps (4 before, with base support printed in the interface colour). Other regression files: only
   ;HEIGHT lines differ (Stitch bridges now 0.4 as sliced).
-- Regression: run the four files above before and after a change and diff the outputs; `colorstack.verify` on
+- Regression: run the four files above before and after a change and diff the outputs; `color_batching.verify` on
   each. Headless Edge screenshots need their own `--user-data-dir` (run via PowerShell `Start-Process`).
 - Review 2026-10-16 fixed: nozzle temperature is now the loaded tool's temperature for the layer being printed
   (Program.temps from the original; first layer from nozzle_temperature_initial_layer, since start G-code may set it

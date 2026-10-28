@@ -1,4 +1,4 @@
-// Port of colorstack/parse.py, step for step. Regular expressions are reproduced by hand with Python's matching rules.
+// Port of color_batching/parse.py, step for step. Regular expressions are reproduced by hand with Python's matching rules.
 #include "parse.hpp"
 
 #include <algorithm>

@@ -1,4 +1,4 @@
-// Staggered colours: each unit on its own schedule instead of shared bands (port of colorstack/staggered.py).
+// Staggered colours: each unit on its own schedule instead of shared bands (port of color_batching/staggered.py).
 #pragma once
 
 #include <functional>

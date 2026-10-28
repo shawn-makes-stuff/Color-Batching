@@ -1,5 +1,5 @@
 // Nozzle model and path geometry: sampling, splitting, nearest-plastic queries and height maps (port of
-// colorstack/geometry.py).
+// color_batching/geometry.py).
 #pragma once
 
 #include <unordered_map>

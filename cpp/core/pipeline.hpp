@@ -1,4 +1,4 @@
-// Entry point for the CLI and the app: settings in, processed file + summary out (port of colorstack/pipeline.py).
+// Entry point for the CLI and the app: settings in, processed file + summary out (port of color_batching/pipeline.py).
 #pragma once
 
 #include <functional>

@@ -1,4 +1,4 @@
-// Write a band plan back out as G-code (port of colorstack/writer.py).
+// Write a band plan back out as G-code (port of color_batching/writer.py).
 #pragma once
 
 #include <map>

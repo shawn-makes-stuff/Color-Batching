@@ -1,4 +1,4 @@
-// One G-code reader for the parser, the estimate and the checker (port of colorstack/reader.py).
+// One G-code reader for the parser, the estimate and the checker (port of color_batching/reader.py).
 // read() calls back with (line_index, event): a move (arcs linearised, de always relative), a tool change, an
 // acceleration or square-corner-velocity setting, a layer marker, Z, line height, feature type (Orca names), width, any
 // other command (comment stripped) or an unrecognised comment line.

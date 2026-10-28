@@ -54,8 +54,8 @@ CMake 3.20 and a C++17 compiler:
 cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release
 cmake --build cpp/build --config Release
 ```
-The programs land in `cpp/build/Release` (Windows) or `cpp/build`. The Python package in `colorstack/`
-(`pip install numpy scipy`, `python -m colorstack.app`) is the reference the C++ build is checked against: both
+The programs land in `cpp/build/Release` (Windows) or `cpp/build`. The Python package in `color_batching/`
+(`pip install numpy scipy`, `python -m color_batching.app`) is the reference the C++ build is checked against: both
 write byte-identical files.
 
 ## Credit

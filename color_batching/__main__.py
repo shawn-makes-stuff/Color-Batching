@@ -1,4 +1,4 @@
-"""python -m colorstack input.gcode [-o output.gcode] [-c config.toml] [--set section.key=value ...]"""
+"""python -m color_batching input.gcode [-o output.gcode] [-c config.toml] [--set section.key=value ...]"""
 import argparse
 import time
 from pathlib import Path
@@ -9,7 +9,7 @@ from .estimate import fmt_time
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(prog="colorstack")
+    ap = argparse.ArgumentParser(prog="color_batching")
     ap.add_argument("input")
     ap.add_argument("-o", "--output")
     ap.add_argument("-c", "--config", default=str(CONFIG_PATH))
@@ -36,7 +36,7 @@ def main(argv=None):
     print(f"minimum layer time {'/'.join(f'{t:g}' for t in r['min_layer_time']) or 'none'} s"
           f" ({'override' if r['min_layer_source'] == 'override' else 'from the file'})")
     print(f"bands {r['bands']}, ceded {r['ceded_mm']:.0f} mm ({r['visible_ceded_mm']:.0f} mm visible)")
-    print(f"{'':10}{'original':>12}{'colorstack':>12}")
+    print(f"{'':10}{'original':>12}{'color_batching':>12}")
     for k, label in (("swaps", "swaps"), ("motion_s", "motion"), ("swap_s", "swapping"), ("total_s", "total")):
         b, f = r["original"][k], r["processed"][k]
         fmtv = str if k == "swaps" else fmt_time

@@ -8,8 +8,8 @@ from pathlib import Path as FsPath
 import numpy as np
 
 sys.path.insert(0, str(FsPath(__file__).resolve().parents[1]))
-from colorstack.geometry import Samples  # noqa: E402
-from colorstack.model import Path  # noqa: E402
+from color_batching.geometry import Samples  # noqa: E402
+from color_batching.model import Path  # noqa: E402
 
 
 def line(pts, w):

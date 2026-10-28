@@ -1,4 +1,4 @@
-// Local app: settings, processing and preview (port of colorstack/app.py).
+// Local app: settings, processing and preview (port of color_batching/app.py).
 //   color-batching-app [file.gcode] [--port 8765] [--no-browser]
 // Serves viewer/index.html and keeps uploads and results under work/, with the same HTTP API as the Python app.
 // ponytail: the page opens in the default browser, as the Python app does; a native webview window comes later.

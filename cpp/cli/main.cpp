@@ -1,5 +1,5 @@
 // color-batching input.gcode [-o output.gcode] [-c config.toml] [--set section.key=value ...]
-// (port of colorstack/__main__.py)
+// (port of color_batching/__main__.py)
 #include <chrono>
 #include <cmath>
 #include <cstdio>

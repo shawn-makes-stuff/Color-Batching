@@ -1,4 +1,4 @@
-"""Local app: settings, processing and preview.  python -m colorstack.app [file.gcode] [--port 8765]
+"""Local app: settings, processing and preview.  python -m color_batching.app [file.gcode] [--port 8765]
 Serves viewer/index.html and keeps uploads and results under work/."""
 import argparse
 import json
@@ -50,7 +50,7 @@ def send_to_printer(path, host, start):
     """Moonraker upload (POST /server/files/upload, root gcodes); starts the print only when asked."""
     host = host.strip().rstrip("/")
     url = (host if host.startswith("http") else "http://" + host) + "/server/files/upload"
-    boundary = "----colorstack" + str(abs(hash(path.name)))
+    boundary = "----color_batching" + str(abs(hash(path.name)))
     crlf = "\r\n"
     parts = [("root", "gcodes")] + ([("print", "true")] if start else [])
     body = b"".join(f'--{boundary}{crlf}Content-Disposition: form-data; name="{k}"{crlf}{crlf}{v}{crlf}'.encode()
@@ -163,7 +163,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    ap = argparse.ArgumentParser(prog="colorstack.app")
+    ap = argparse.ArgumentParser(prog="color_batching.app")
     ap.add_argument("file", nargs="?", help="Orca .gcode to preload")
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--no-browser", action="store_true")

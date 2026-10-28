@@ -1,4 +1,4 @@
-// Parse multicolour G-code into layers of extrusion paths (port of colorstack/parse.py).
+// Parse multicolour G-code into layers of extrusion paths (port of color_batching/parse.py).
 #pragma once
 
 #include <map>

@@ -1,4 +1,4 @@
-// Port of colorstack/reader.py. Where Python's regular expressions are used, the matching rules are reproduced exactly
+// Port of color_batching/reader.py. Where Python's regular expressions are used, the matching rules are reproduced exactly
 // (\s = Python's whitespace, \d*\.?\d+ with its backtracking), so the events are the same, value for value.
 #include "reader.hpp"
 

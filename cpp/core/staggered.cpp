@@ -1,4 +1,4 @@
-// Port of colorstack/staggered.py.
+// Port of color_batching/staggered.py.
 #include "staggered.hpp"
 
 #include <algorithm>

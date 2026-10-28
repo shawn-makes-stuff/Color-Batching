@@ -12,8 +12,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from colorstack.config import DEFAULTS  # noqa: E402
-from colorstack.verify import (arrival_fidelity, check, cooling_fidelity, e_balance, fidelity,  # noqa: E402
+from color_batching.config import DEFAULTS  # noqa: E402
+from color_batching.verify import (arrival_fidelity, check, cooling_fidelity, e_balance, fidelity,  # noqa: E402
                                swap_fidelity)
 
 from regress import OUT, SETTINGS  # noqa: E402
