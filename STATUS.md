@@ -76,8 +76,21 @@ C++ PORT (branch color-batching, plan in docs/CPP_PLAN.md; build: cmake -S cpp -
 - step 5 planner (KD tree matching scipy, Samples, split, interface mask, plan, tower.compensate): identical bands
   and G-code on 15 runs (v/*, cube, doorbell, scarf_grid, stitch, per_object cube + stitch, Vegeta) via
   tools/dump_bands.py vs plan_bands.exe. Planning alone: small 15.1 -> 1.6 s, same 66.4 -> 13.4 s (machine loaded).
-- next: 6 staggered/RunTower/threads/cancel, 7 CLI + app, 8 CI. User 2026-10-28: write all of it, then ONE build
-  and one methodical test pass per feature (no per-step comparison runs).
+- steps 6-8 written in one go, then one build (0 warnings) and one test pass (2026-10-28), all identical:
+  - staggered + RunTower: bands and G-code identical on small, filaments, cube, stitch (dump_bands.py staggered).
+  - CLI (cpp/build/Release/color-batching.exe, same options as python -m colorstack): output file AND printed
+    summary identical on 17 runs: v/*, cube, doorbell, scarf_grid, stitch, stitch staggered, cube no per-object,
+    --set overrides, Vegeta. Whole run: Vegeta 197 -> 36 s, stitch 26 -> 4 s, v/* ~50 -> ~5 s.
+  - app (color-batching-app.exe, same HTTP API as colorstack/app.py; opens the default browser): GET pages /
+    config / state / progress / icons / 404s equal to the Python app; POST config saves the same TOML as
+    save_config (quirks included); upload + process + download = Python pipeline (summary + file); cancel ends
+    both variant threads in 0.8 s (409); busy 409; Send to printer checked against a fake Moonraker (fields, file
+    bytes, start on/off, errors); preload argument + URL quoting as Python. Tested in a scratch root on ports
+    8791-8794, the real colorstack.toml / work/ untouched.
+  - CI: .github/workflows/cpp.yml builds Windows / macOS / Linux, artifacts with viewer/. NOT run yet (needs a
+    push). Risk: macOS libc++ may lack std::from_chars for double (used in reader/parse/json) - fix if CI fails.
+- left: native webview window (app opens the browser for now); http only for Moonraker (no TLS); TOML reader
+  handles the file's own subset; Python int() underscores not taken in filament_soluble lists.
 - exactness notes: math.hypot/dist = CPython vector_norm (cpp/core/pymath.hpp); numpy hypot = the C library's;
   Python dict insertion order kept where it matters (fans, states, swap blocks); round() via to_chars/from_chars.
 

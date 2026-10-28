@@ -32,6 +32,7 @@ public:
     KDTree(std::vector<std::pair<double, double>> pts);
     double nearest(double qx, double qy, double bound) const;
     size_t size() const { return pts_.size(); }
+    const std::vector<std::pair<double, double>>& points() const { return pts_; }   // in tree order
 
 private:
     struct Node {

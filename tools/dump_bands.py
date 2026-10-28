@@ -1,7 +1,7 @@
 """Plan a file (default settings, one variant: plan + tower compensation, as the pipeline does), write the bands with
 every path in full (floats as 64-bit patterns, tab-separated), and the Python writer's G-code for those bands, so the
 C++ writer can be compared on exactly the same plan (cpp/tools/write_bands).
-python tools/dump_bands.py in.gcode bands.txt expected.gcode [per_object]"""
+python tools/dump_bands.py in.gcode bands.txt expected.gcode [per_object] [staggered]"""
 import copy
 import struct
 import sys
@@ -14,6 +14,7 @@ from colorstack.geometry import Nozzle  # noqa: E402
 from colorstack.parse import parse  # noqa: E402
 from colorstack.pipeline import materials  # noqa: E402
 from colorstack.plan import Options, plan  # noqa: E402
+from colorstack.staggered import plan_staggered  # noqa: E402
 from colorstack.tower import compensate  # noqa: E402
 from colorstack.writer import Writer  # noqa: E402
 
@@ -54,15 +55,19 @@ def write_path(w, p):
 
 if __name__ == "__main__":
     src, bands_out, expected = sys.argv[1:4]
-    per_object = len(sys.argv) > 4 and sys.argv[4] == "per_object"
+    per_object = "per_object" in sys.argv[4:]
+    staggered = "staggered" in sys.argv[4:]
     cfg = apply(copy.deepcopy(DEFAULTS), {"nozzle": {"contact": 0.2}})
     nz, st, co = cfg["nozzle"], cfg["stack"], cfg["cooling"]
     nozzle = Nozzle(nz["tip_diameter"] / 2, nz["cone_angle"], nz["clear_height"], nz["contact"])
     prog = parse(src)
     opts = Options(int(st["max_band_layers"]), st["surface_tolerance"], st["resolution"], st["min_piece"], per_object,
                    prog.free_support if st["free_support"] else frozenset(), materials(prog))
-    bands = plan(prog, nozzle, opts)
-    compensate(prog, bands)
+    if staggered:
+        bands, _ = plan_staggered(prog, nozzle, opts)
+    else:
+        bands = plan(prog, nozzle, opts)
+        compensate(prog, bands)
     with open(bands_out, "w", encoding="utf-8", newline="\n") as f:
         w = f.write
         w(f"bands\t{len(bands)}\n")

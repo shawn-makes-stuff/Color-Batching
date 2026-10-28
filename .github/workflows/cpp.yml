@@ -1,0 +1,34 @@
+# Build the C++ tool and app on Windows, macOS and Linux; one artifact per OS.
+name: cpp
+on:
+  push:
+    paths: ["cpp/**", "viewer/**", ".github/workflows/cpp.yml"]
+  pull_request:
+    paths: ["cpp/**", "viewer/**", ".github/workflows/cpp.yml"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build cpp/build --config Release --parallel
+      - name: Package
+        shell: bash
+        run: |
+          mkdir -p dist/viewer
+          cp viewer/index.html viewer/icon.svg viewer/icon.png dist/viewer/
+          for exe in color-batching color-batching-app; do
+            cp cpp/build/Release/$exe.exe dist/ 2>/dev/null || cp cpp/build/$exe dist/
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: color-batching-${{ runner.os }}
+          path: dist

@@ -1,4 +1,4 @@
-// Port of colorstack/tower.py (RunTower follows with the staggered planner).
+// Port of colorstack/tower.py.
 #include "tower.hpp"
 
 #include <algorithm>
@@ -113,6 +113,51 @@ std::pair<int, int> compensate(const Program& program, std::vector<Band>& bands)
         }
     }
     return {kept, replaced};
+}
+
+RunTower::RunTower(const Program& program) : tpl(grid_template(program)) {
+    for (const auto& L : program.layers) {
+        layers.emplace_back();
+        for (const auto& p : L.paths)
+            if (!p->tool) layers.back().push_back(p);
+    }
+}
+
+TowerPaths RunTower::wipe() {
+    int j = next;
+    if (j >= int(layers.size())) return {};
+    std::optional<int> free;
+    for (const auto& p : layers[j])
+        if (p->tower == "wipe" && !used.count({j, p->block})) {
+            free = p->block;
+            break;
+        }
+    if (!free) return {};
+    used.insert({j, *free});
+    std::vector<PathP> block;
+    for (const auto& p : layers[j])
+        if (p->tower == "wipe" && p->block == *free) block.push_back(p);
+    kept += int(block.size());
+    return {{j, block}};
+}
+
+TowerPaths RunTower::complete(int upto) {
+    TowerPaths out;
+    for (int j = next; j < std::min(upto, int(layers.size())); j++) {
+        std::vector<PathP> paths;
+        for (const auto& p : layers[j]) {
+            if (p->tower == "wipe" && used.count({j, p->block})) continue;
+            if (p->tower == "wipe" && tpl) {
+                for (auto& g : grid_over(*p, *tpl)) paths.push_back(g);
+                replaced++;
+            } else {
+                paths.push_back(p);
+            }
+        }
+        out.emplace_back(j, paths);
+    }
+    next = std::max(next, upto);
+    return out;
 }
 
 }  // namespace cb

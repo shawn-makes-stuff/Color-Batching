@@ -1,6 +1,6 @@
 // Plan a file with the C++ planner (default settings, plan + tower compensation, as tools/dump_bands.py), write the
 // bands in dump_bands.py's format and the G-code for them: both must equal the Python ones.
-// plan_bands in.gcode bands.txt out.gcode [per_object]
+// plan_bands in.gcode bands.txt out.gcode [per_object] [staggered]
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -9,6 +9,7 @@
 
 #include "../core/parse.hpp"
 #include "../core/plan.hpp"
+#include "../core/staggered.hpp"
 #include "../core/tower.hpp"
 #include "../core/writer.hpp"
 
@@ -71,12 +72,22 @@ int main(int argc, char** argv) {
     cb::Program prog = cb::parse(argv[1]);
     cb::Nozzle nozzle{1.0 / 2, 45.0, 2.0, 0.2};     // DEFAULTS with contact 0.2, as tools/dump_bands.py
     cb::Options opts;
-    opts.per_object = argc > 4 && std::string(argv[4]) == "per_object";
+    opts.per_object = false;
+    bool staggered = false;
+    for (int k = 4; k < argc; k++) {
+        opts.per_object = opts.per_object || std::string(argv[k]) == "per_object";
+        staggered = staggered || std::string(argv[k]) == "staggered";
+    }
     opts.free_support = prog.free_support;
     opts.materials = cb::materials(prog);
     auto t0 = std::chrono::steady_clock::now();
-    auto bands = cb::plan(prog, nozzle, opts);
-    cb::compensate(prog, bands);
+    std::vector<cb::Band> bands;
+    if (staggered) {
+        bands = cb::plan_staggered(prog, nozzle, opts).first;
+    } else {
+        bands = cb::plan(prog, nozzle, opts);
+        cb::compensate(prog, bands);
+    }
     std::fprintf(stderr, "planned %zu bands in %.2f s\n", bands.size(),
                  std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());
     std::string w = "bands\t" + std::to_string(bands.size()) + "\n";
