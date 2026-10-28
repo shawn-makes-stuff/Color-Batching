@@ -701,14 +701,14 @@ void Writer::wait(double seconds) {
     retract_move();
     double zz = (z && *z != 0.0) ? *z : 0.0;
     lift(std::max(top, zz) + std::max(z_hop, o.swap_lift));
-    emit("G4 P" + std::to_string((long long)std::nearbyint(seconds * 1000)) + " ; ColorStack: rest of the minimum layer time");
+    emit("G4 P" + std::to_string((long long)std::nearbyint(seconds * 1000)) + " ; Color Batching: rest of the minimum layer time");
     waited++;
 }
 
 std::vector<std::string> Writer::write(const std::vector<Band>& bands, const std::vector<std::string>& summary_lines) {
     for (auto& ln : p.preamble) out.push_back(ln);
     for (auto& s : summary_lines) out.push_back("; " + s);
-    if (p.abs_e) emit("M83 ; ColorStack writes relative extrusion");
+    if (p.abs_e) emit("M83 ; Color Batching writes relative extrusion");
     left.assign(p.layers.size(), 0);
     for (auto& band : bands)
         for (size_t j = 0; j < band.layers.size(); j++) left[band.layers[j]] += int(band.work[j].size());

@@ -18,6 +18,8 @@ struct Help {
 const std::vector<Help>& help();       // key "section.name"; the README's settings table says the same
 
 // the folder holding viewer/ and colorstack.toml: the first parent of `start` that has viewer/index.html, else start
+// root / color-batching.toml, or 0.1.0's colorstack.toml when that is the only one
+std::filesystem::path config_path(const std::filesystem::path& root);
 std::filesystem::path find_root(const std::filesystem::path& start);
 
 Json load_config(const std::filesystem::path& path);

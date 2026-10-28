@@ -1,6 +1,7 @@
 __pycache__/
 work/
 colorstack.toml
+color-batching.toml
 stash/
 samples/
 00000.log

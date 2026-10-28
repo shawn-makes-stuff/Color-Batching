@@ -142,7 +142,7 @@ class Handler(BaseHTTPRequestHandler):
                 progress.update(fraction=0.0, stage="", started=time.time(), running=True)
                 cancel.clear()
                 try:
-                    out = WORK / (src.name[:-6] + ".colorstack.gcode")
+                    out = WORK / (src.name[:-6] + ".color-batching.gcode")
                     result = run(str(src), str(out), apply(load_config(), req.get("config", {})),
                                  lambda f, stage: progress.update(fraction=f, stage=stage), cancel.is_set)
                 except Cancelled:
@@ -180,7 +180,7 @@ def main():
         url += "?input=" + quote(state["input"])
     if not a.no_browser:
         threading.Timer(0.5, webbrowser.open, [url]).start()
-    print(f"ColorStack app at {url}  (Ctrl+C to stop)")
+    print(f"Color Batching app at {url}  (Ctrl+C to stop)")
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

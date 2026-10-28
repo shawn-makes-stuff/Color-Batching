@@ -31,13 +31,14 @@ def _parse_settings(lines):
     return out
 
 
-PROCESSED = "Processed by ColorStack (https://github.com/shawn-makes-stuff/ColorStack)"    # written as a comment
+PROCESSED = "Processed by Color Batching (https://github.com/shawn-makes-stuff/Color-Batching)"    # written as a comment
+PROCESSED_BEFORE = ("Processed by ColorStack (https://github.com/shawn-makes-stuff/ColorStack)",)   # 0.1.0
 
 
 def parse(path_in):
     lines = load(path_in)
-    if "; " + PROCESSED in lines:
-        raise ValueError("this file was already processed by ColorStack; open the original")
+    if any("; " + m in lines for m in (PROCESSED,) + PROCESSED_BEFORE):
+        raise ValueError("this file was already processed by Color Batching; open the original")
     settings = _parse_settings(lines)
     header = []
     if lines and lines[0].startswith("; HEADER_BLOCK_START"):
@@ -351,7 +352,7 @@ def _check_printer(prog):
     # single_extruder_multi_material = 1 is one nozzle ("Use single nozzle to print multi filament"); PrusaSlicer then
     # still writes one nozzle_diameter per filament
     if len(nozzles) > 1 and first_setting(prog.settings, "single_extruder_multi_material", 0) != 1:
-        raise ValueError(f"the printer has {len(nozzles)} nozzles; ColorStack supports one nozzle with a filament "
+        raise ValueError(f"the printer has {len(nozzles)} nozzles; Color Batching supports one nozzle with a filament "
                          "changer only")
     if first_setting(prog.settings, "belt_printer", 0) == 1:
         raise ValueError("belt printers are not supported (tilted layers)")

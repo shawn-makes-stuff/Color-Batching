@@ -216,7 +216,7 @@ void check_printer(const Program& prog) {
     size_t n = nozzles ? nozzles->size() : 0;
     if (n > 1 && first_setting(prog.settings, "single_extruder_multi_material", 0) != 1)
         throw std::runtime_error("the printer has " + std::to_string(n) +
-                                 " nozzles; ColorStack supports one nozzle with a filament changer only");
+                                 " nozzles; Color Batching supports one nozzle with a filament changer only");
     if (first_setting(prog.settings, "belt_printer", 0) == 1)
         throw std::runtime_error("belt printers are not supported (tilted layers)");
     if (first_setting(prog.settings, "spiral_mode", 0) == 1)
@@ -233,8 +233,9 @@ void check_printer(const Program& prog) {
 
 Program parse(const std::string& path_in) {
     std::vector<std::string> lines = load(path_in);
-    if (std::find(lines.begin(), lines.end(), "; " + std::string(PROCESSED)) != lines.end())
-        throw std::runtime_error("this file was already processed by ColorStack; open the original");
+    for (const char* m : {PROCESSED, PROCESSED_BEFORE})
+        if (std::find(lines.begin(), lines.end(), "; " + std::string(m)) != lines.end())
+            throw std::runtime_error("this file was already processed by Color Batching; open the original");
     Program prog;
     prog.settings = parse_settings(lines);
     if (!lines.empty() && starts(lines[0], "; HEADER_BLOCK_START")) {

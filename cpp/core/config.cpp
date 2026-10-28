@@ -84,7 +84,7 @@ Json convert(const Json& v, const Json& def) {
     return Json(py_str(v));
 }
 
-// the TOML colorstack.toml uses: [section] tables of key = bool / number / string
+// the TOML color-batching.toml uses: [section] tables of key = bool / number / string
 // ponytail: no arrays, inline tables, dotted keys or multi-line strings; add them if the file ever needs them
 Json parse_toml(const std::string& text) {
     Json out = Json::object();
@@ -92,7 +92,7 @@ Json parse_toml(const std::string& text) {
     std::istringstream in(text);
     std::string raw;
     int n = 0;
-    auto fail = [&]() { throw std::runtime_error("colorstack.toml line " + std::to_string(n) + ": cannot read '" + raw + "'"); };
+    auto fail = [&]() { throw std::runtime_error("color-batching.toml line " + std::to_string(n) + ": cannot read '" + raw + "'"); };
     while (std::getline(in, raw)) {
         n++;
         std::string_view line = py_strip(raw);
@@ -231,6 +231,11 @@ const std::vector<Help>& help() {
     return h;
 }
 
+std::filesystem::path config_path(const std::filesystem::path& root) {
+    auto p = root / "color-batching.toml", old = root / "colorstack.toml";
+    return !std::filesystem::exists(p) && std::filesystem::exists(old) ? old : p;
+}
+
 std::filesystem::path find_root(const std::filesystem::path& start) {
     for (auto p = start; !p.empty(); p = p.parent_path()) {
         if (std::filesystem::exists(p / "viewer" / "index.html")) return p;
@@ -266,7 +271,7 @@ Json& apply(Json& cfg, const Json& values) {
 }
 
 void save_config(const Json& cfg, const std::filesystem::path& path) {
-    std::string out = "# ColorStack settings (written by the app; safe to edit by hand)\n";
+    std::string out = "# Color Batching settings (written by the app; safe to edit by hand)\n";
     for (const auto& [name, values] : cfg.o) {
         out += "\n[" + name + "]\n";
         for (const auto& [k, v] : values.o) {

@@ -30,7 +30,7 @@ int main(int argc, char** argv) {
     namespace fs = std::filesystem;
     std::string input, output;
     fs::path root = cb::find_root(fs::absolute(fs::path(argv[0])).parent_path());
-    fs::path config = root / "colorstack.toml";
+    fs::path config = cb::config_path(root);
     cb::Json values = cb::Json::object();
     for (int k = 1; k < argc; k++) {
         std::string a = argv[k];
@@ -64,7 +64,7 @@ int main(int argc, char** argv) {
     try {
         cb::Json cfg = cb::load_config(config);
         cb::apply(cfg, values);
-        if (output.empty()) output = (fs::path(input).parent_path() / fs::path(input).stem()).string() + ".colorstack.gcode";
+        if (output.empty()) output = (fs::path(input).parent_path() / fs::path(input).stem()).string() + ".color-batching.gcode";
         auto t0 = std::chrono::steady_clock::now();
         cb::Json r = cb::run(input, output, cfg);
         auto i = [&](const char* k) { return r.get(k)->i; };
@@ -89,7 +89,7 @@ int main(int argc, char** argv) {
         std::printf("minimum layer time %s s (%s)\n", mlt.empty() ? "none" : mlt.c_str(),
                     r.get("min_layer_source")->s == "override" ? "override" : "from the file");
         std::printf("bands %lld, ceded %.0f mm (%.0f mm visible)\n", i("bands"), d("ceded_mm"), d("visible_ceded_mm"));
-        std::printf("%-10s%12s%12s\n", "", "original", "colorstack");
+        std::printf("%-10s%12s%12s\n", "", "original", "batched");
         const cb::Json &o = *r.get("original"), &p = *r.get("processed");
         std::printf("%-10s%12lld%12lld\n", "swaps", o.get("swaps")->i, p.get("swaps")->i);
         for (auto [k, label] : {std::pair{"motion_s", "motion"}, std::pair{"swap_s", "swapping"}, std::pair{"total_s", "total"}})

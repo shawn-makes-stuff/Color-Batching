@@ -64,7 +64,7 @@ def swap_each(o, slicer, lim):
     if slicer:
         return (max(0.0, slicer - o["motion_s"] - o["dwell_s"]) / o["swaps"] if o["swaps"] else 0.0,
                 "slicer estimate")
-    return lim.swap_s, "ColorStack model"
+    return lim.swap_s, "Color Batching model"
 
 
 def anchor(o, p, slicer, lim):

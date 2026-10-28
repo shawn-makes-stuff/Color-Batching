@@ -222,7 +222,7 @@ std::optional<double> file_estimate(const std::vector<std::string>& lines) {
 
 std::pair<double, std::string> swap_each(const Estimate& o, std::optional<double> slicer, const Limits& lim) {
     if (slicer) return {o.swaps ? std::max(0.0, *slicer - o.motion_s - o.dwell_s) / o.swaps : 0.0, "slicer estimate"};
-    return {lim.swap_s, "ColorStack model"};
+    return {lim.swap_s, "Color Batching model"};
 }
 
 void anchor(Estimate& o, Estimate& p, std::optional<double> slicer, const Limits& lim) {

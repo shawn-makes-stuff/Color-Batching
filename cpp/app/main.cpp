@@ -323,7 +323,7 @@ Reply post(const std::string& path, const std::map<std::string, std::string>& q,
                 p_running = false;
             }
         } done;
-        std::string out_name = name.substr(0, name.size() - 6) + ".colorstack.gcode";
+        std::string out_name = name.substr(0, name.size() - 6) + ".color-batching.gcode";
         fs::path out = WORK / fs::u8path(out_name);
         Json cfg = cb::load_config(CONFIG);
         const Json* given = req.get("config");
@@ -435,7 +435,7 @@ int main(int argc, char** argv) {
     ROOT = cb::find_root(fs::absolute(fs::path(argv[0])).parent_path());
     VIEWER = ROOT / "viewer" / "index.html";
     WORK = ROOT / "work";
-    CONFIG = ROOT / "colorstack.toml";
+    CONFIG = cb::config_path(ROOT);
     fs::create_directories(WORK);
     if (!file.empty()) {
         std::string name = safe_name(fs::path(file).filename().u8string());
@@ -459,7 +459,7 @@ int main(int argc, char** argv) {
     std::string url = "http://127.0.0.1:" + std::to_string(port) + "/";
     if (!file.empty()) url += "?input=" + quote(state.get("input")->s);     // a refresh starts empty
     if (browser) open_browser(url);
-    std::printf("ColorStack app at %s  (Ctrl+C to stop)\n", url.c_str());
+    std::printf("Color Batching app at %s  (Ctrl+C to stop)\n", url.c_str());
     std::fflush(stdout);
     while (true) {
         sock_t c = accept(srv, nullptr, nullptr);

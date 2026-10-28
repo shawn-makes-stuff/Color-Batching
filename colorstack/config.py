@@ -1,9 +1,11 @@
-"""Settings: defaults, colorstack.toml, and the label / unit / help the app shows for each."""
+"""Settings: defaults, color-batching.toml, and the label / unit / help the app shows for each."""
 import copy
 import tomllib
 from pathlib import Path
 
-CONFIG_PATH = Path(__file__).resolve().parent.parent / "colorstack.toml"
+CONFIG_PATH = Path(__file__).resolve().parent.parent / "color-batching.toml"
+if not CONFIG_PATH.exists() and CONFIG_PATH.with_name("colorstack.toml").exists():     # 0.1.0's name
+    CONFIG_PATH = CONFIG_PATH.with_name("colorstack.toml")
 
 DEFAULTS = {
     "nozzle": {
@@ -64,7 +66,7 @@ def apply(cfg, values):
 
 
 def save_config(cfg, path=CONFIG_PATH):
-    lines = ["# ColorStack settings (written by the app; safe to edit by hand)"]
+    lines = ["# Color Batching settings (written by the app; safe to edit by hand)"]
     for section, values in cfg.items():
         lines.append(f"\n[{section}]")
         for k, v in values.items():

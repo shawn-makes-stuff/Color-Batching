@@ -22,7 +22,7 @@ def main(argv=None):
         section, name = key.split(".", 1)
         values.setdefault(section, {})[name] = value
     cfg = apply(load_config(a.config), values)
-    out = a.output or str(Path(a.input).with_suffix("")) + ".colorstack.gcode"
+    out = a.output or str(Path(a.input).with_suffix("")) + ".color-batching.gcode"
     t0 = time.time()
     r = run(a.input, out, cfg)
     print(f"tower wipes kept {r['tower_wipes_kept']}, "

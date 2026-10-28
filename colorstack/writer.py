@@ -552,7 +552,7 @@ class Writer:
         """Lift clear and wait out the rest of the minimum layer time, still retracted."""
         self.retract_move()
         self.lift(max(self.top, self.z or 0.0) + max(self.z_hop, self.swap_lift))
-        self.emit(f"G4 P{int(round(seconds * 1000))} ; ColorStack: rest of the minimum layer time")
+        self.emit(f"G4 P{int(round(seconds * 1000))} ; Color Batching: rest of the minimum layer time")
         self.waited += 1
 
     def write(self, bands, summary_lines):
@@ -561,7 +561,7 @@ class Writer:
         out.extend(self.p.preamble)
         out.extend("; " + s for s in summary_lines)
         if self.p.abs_e:
-            self.emit("M83 ; ColorStack writes relative extrusion")
+            self.emit("M83 ; Color Batching writes relative extrusion")
         self.left = [0] * len(self.p.layers)
         for band in bands:
             for layer, w in zip(band.layers, band.work):

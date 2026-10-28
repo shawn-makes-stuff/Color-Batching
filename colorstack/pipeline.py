@@ -52,7 +52,9 @@ def _progress_span(report, a, b):
 
 
 def _variant(prog, nozzle, cfg, lim, staggered, per_object, progress=None):
-    """Plan, write and time one way of printing prog (runs in a worker process when there are several)."""
+    """Plan, write and time one way of printing prog (runs in a worker process when there are several). None when
+    the staggered planner finds no way on: a colour that ran ahead left nothing valid for one behind it (the banded
+    plan is always made too)."""
     report = progress or (lambda fraction, stage: None)
     st, co, nz = cfg["stack"], cfg["cooling"], cfg["nozzle"]
     opts = Options(int(st["max_band_layers"]), st["surface_tolerance"], st["resolution"], st["min_piece"],
@@ -61,7 +63,10 @@ def _variant(prog, nozzle, cfg, lim, staggered, per_object, progress=None):
     split = PLAN_WEIGHT[staggered] / (PLAN_WEIGHT[staggered] + WRITE_WEIGHT)
     stage = "Planning staggered colours" if staggered else "Planning colour bands"
     if staggered:
-        bands, wipes = plan_staggered(prog, nozzle, opts, lambda f: report(split * f, stage))
+        try:
+            bands, wipes = plan_staggered(prog, nozzle, opts, lambda f: report(split * f, stage))
+        except RuntimeError:
+            return None
     else:
         bands = plan(prog, nozzle, opts, lambda f: report(split * f, stage))
         wipes = compensate(prog, bands, nozzle)
@@ -146,7 +151,7 @@ def run(input_path, output_path, cfg, progress=None, cancelled=None):
     slicer = file_estimate(original)
     each, _ = swap_each(o, slicer, lim)
     best = None
-    for r in results:          # in variant order: the first of equally fast plans wins, as before
+    for r in filter(None, results):    # in variant order: the first of equally fast plans wins, as before
         total = r["est"]["motion_s"] + r["est"]["dwell_s"] + r["est"]["swaps"] * each
         if best is None or total < best[0]:
             best = (total, r)

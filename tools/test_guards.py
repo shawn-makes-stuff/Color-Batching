@@ -8,14 +8,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from colorstack.parse import PROCESSED, parse  # noqa: E402
+from colorstack.parse import PROCESSED, PROCESSED_BEFORE, parse  # noqa: E402
 
 SRC = ROOT / "samples" / "cube1h43.gcode"
 # a real two-nozzle printer: two nozzle_diameter values and single-extruder multi-material off
 EDITS = {"two nozzles": ("; nozzle_diameter = 0.4", "; nozzle_diameter = 0.4,0.4\n; single_extruder_multi_material = 0"),
          "belt printer": ("; nozzle_diameter = 0.4", "; nozzle_diameter = 0.4\n; belt_printer = 1"),
          "sequential printing": ("; print_sequence = by layer", "; print_sequence = by object"),
-         "already processed": ("; print_sequence = by layer", "; print_sequence = by layer\n; " + PROCESSED)}
+         "already processed": ("; print_sequence = by layer", "; print_sequence = by layer\n; " + PROCESSED),
+         "processed by 0.1.0": ("; print_sequence = by layer", "; print_sequence = by layer\n; " + PROCESSED_BEFORE[0])}
 
 if __name__ == "__main__":
     text = SRC.read_text(encoding="utf-8")

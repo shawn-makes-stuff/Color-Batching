@@ -1,6 +1,6 @@
-# ColorStack settings
+# Color Batching settings
 
-Set them in the app's side panel (Save defaults writes `colorstack.toml`), by editing `colorstack.toml`, or per
+Set them in the app's side panel (Save defaults writes `color-batching.toml`), by editing `color-batching.toml`, or per
 run with `color-batching in.gcode --set section.key=value`.
 
 | Setting | Default | Meaning |

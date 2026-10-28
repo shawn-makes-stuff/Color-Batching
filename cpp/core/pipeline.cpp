@@ -29,6 +29,7 @@ struct VariantResult {
     Steps steps;
     std::vector<std::string> lines;
     Json summary;
+    bool failed = false;     // the staggered planner found no way on (the banded plan is always made too)
 };
 
 Json estimate_json(const Estimate& e) {
@@ -64,7 +65,15 @@ VariantResult variant(const Program& prog, const Nozzle& nozzle, const Json& cfg
     std::vector<Band> bands;
     std::tuple<int, int, int> wipes;
     if (staggered) {
-        std::tie(bands, wipes) = plan_staggered(prog, nozzle, opts, planned);
+        try {
+            std::tie(bands, wipes) = plan_staggered(prog, nozzle, opts, planned);
+        } catch (const Cancelled&) {
+            throw;
+        } catch (const std::runtime_error&) {     // a colour that ran ahead left nothing valid for one behind it
+            VariantResult none;
+            none.failed = true;
+            return none;
+        }
     } else {
         bands = plan(prog, nozzle, opts, planned);
         wipes = compensate(prog, bands, nozzle);
@@ -196,12 +205,13 @@ Json run(const std::string& input_path, const std::string& output_path, const Js
     }
     auto slicer = file_estimate(original);
     double each = swap_each(o, slicer, lim).first;
-    size_t best = 0;
+    size_t best = results.size();
     double best_total = 0;
     for (size_t k = 0; k < results.size(); k++) {     // in variant order: the first of equally fast plans wins
+        if (results[k].failed) continue;
         const Estimate& e = results[k].est;
         double total = e.motion_s + e.dwell_s + e.swaps * each;
-        if (k == 0 || total < best_total) {
+        if (best == results.size() || total < best_total) {
             best = k;
             best_total = total;
         }

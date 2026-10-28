@@ -1,4 +1,4 @@
-# ColorStack status
+# Color Batching status (repo shawn-makes-stuff/Color-Batching; Python package still colorstack/)
 
 ## Results (contact 0.2; cube/Stitch cone 55) — all verified: 0 collisions, 0 mm outer-surface colour change
 | file | swaps | time (slicer-anchored) |
@@ -67,6 +67,10 @@ processing; Vegeta 958->822, -2h27m, processing 50 s -> 440 s; staggered output 
 no gain: cone 30/55, tip 0.8/1.5, clear 3 (inert at contact 0.2; clear 1 costs 4 swaps on cube), min_piece 1/4,
 resolution 0.05/0.2, max_band_layers 4. Cooling defaults kept (measured in 8fdabaf). Next lever: contact 0.4 (cube
 47->34, Stitch 229->204) needs a print test.
+Staggered planner can get stuck (scarf_grid layer 50: a colour run ahead printed a wall a later colour's line would go
+under); the pipeline now drops a failed staggered plan and keeps the banded one. Rename 2026-10-28: user-visible
+"Color Batching", output .color-batching.gcode, settings color-batching.toml (0.1.0's colorstack.toml still used
+when it is the only one), marker "Processed by Color Batching (...)"; the 0.1.0 marker is still refused.
 
 ## Non-planar: removed (2026-10-16)
 The user dropped all non-planar features (smooth tops, colour joins, undersides on support): no visible gain, out of

@@ -1,17 +1,17 @@
-# ColorStack
+# Color Batching
 
-A multicolour print normally swaps filament on every layer that has more than one colour. <br>ColorStack rewrites the
-sliced G-code so each colour prints several layers in one go (Color Batching), wherever the nozzle can do so
+A multicolour print normally swaps filament on every layer that has more than one colour. <br>Color Batching rewrites the
+sliced G-code so each colour prints several layers in one go, wherever the nozzle can do so
 without colliding. <br>Fewer swaps = less purge waste, shorter prints.
 
-![Original and ColorStack playing side by side](docs/cube-example.gif)
+![Original and Color Batching playing side by side](docs/cube-example.gif)
 
-*Example test cube: <br> Unprocessed file - 49 colour changes, 1h10m estimated print time <br> ColorStack - 19 colour changes, 40m estimated print time*
+*Example test cube: <br> Unprocessed file - 49 colour changes, 1h10m estimated print time <br> Color Batching - 19 colour changes, 40m estimated print time*
 
 ## Install
-Download the zip for your system from [Releases](https://github.com/shawn-makes-stuff/ColorStack/releases), unpack it
+Download the zip for your system from [Releases](https://github.com/shawn-makes-stuff/Color-Batching/releases), unpack it
 anywhere and run `color-batching-app`. The app opens in your browser at http://127.0.0.1:8765. Keep the `viewer`
-folder next to the program; your settings are saved beside it in `colorstack.toml`.
+folder next to the program; your settings are saved beside it in `color-batching.toml`.
 
 - macOS: the build is not signed. The first time, right-click the app and choose Open (or run
   `xattr -d com.apple.quarantine color-batching-app`).
@@ -44,8 +44,8 @@ All settings are described in [docs/settings.md](docs/settings.md).
 - The prime tower keeps the size and place the slicer gave it. When the slicer puts each colour pair's flush into the
   tower (purge in prime tower), every swap that is left still gets its own pair's flush there, as far as the tower
   allows; the command line reports any swap that falls short.
-- Refused: two or more nozzles, belt printers, sequential (object by object) printing, and files ColorStack already
-  processed (each output carries a "Processed by ColorStack" comment).
+- Refused: two or more nozzles, belt printers, sequential (object by object) printing, and files Color Batching already
+  processed (each output carries a "Processed by Color Batching" comment).
 - Not yet: Bambu AMS and Prusa MMU swap routines written as moves.
 
 ## Building from source

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ColorStack</title>
+<title>Color Batching</title>
 <link rel="icon" type="image/png" sizes="256x256" href="icon.png">
 <link rel="icon" type="image/svg+xml" href="icon.svg">
 <style>
@@ -224,7 +224,7 @@
 <body>
 <header>
   <button class="icon-btn" id="appBtn" hidden title="Show / hide settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg></button>
-  <div class="brand"><img src="icon.svg" alt="">ColorStack</div>
+  <div class="brand"><img src="icon.svg" alt="">Color Batching</div>
   <div class="tools app-only">
     <label class="icon-btn" id="importBtn" title="Import G-code"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="m7 8 5-5 5 5"/><path d="M5 15v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"/></svg><input type="file" id="upload" accept=".gcode" hidden></label>
     <div class="menu-wrap">
@@ -251,7 +251,7 @@
   <div id="wrap">
     <canvas id="c"></canvas>
     <div class="divider"></div>
-    <div id="split" hidden role="slider" aria-label="Original / ColorStack" tabindex="0"><span></span></div>
+    <div id="split" hidden role="slider" aria-label="Original / Color Batching" tabindex="0"><span></span></div>
     <div id="side"><div id="legend"></div><div class="stats info" id="statsA"></div><div class="stats info" id="statsB"></div>
       <div id="preview" hidden>
         <label for="viewMode">Print Overview</label>
@@ -259,10 +259,10 @@
           <option value="spd">Speed</option><option value="h">Height</option><option value="w">Width</option>
           <option value="flow">Volumetric flow</option><option value="fan">Fan speed</option><option value="temp">Temperature</option></select>
         <label for="compare">Print Preview</label>
-        <select id="compare"><option value="original">Original</option><option value="colorstack">ColorStack</option>
+        <select id="compare"><option value="original">Original</option><option value="colorstack">Color Batching</option>
           <option value="side">Side by side</option><option value="slider">Slider</option></select>
       </div></div>
-    <div id="drop"><div><b>No print loaded</b>Open an Orca G-code file. The original plays on the left and the ColorStack version on the right, on the same clock.</div></div>
+    <div id="drop"><div><b>No print loaded</b>Open an Orca G-code file. The original plays on the left and the Color Batching version on the right, on the same clock.</div></div>
   </div>
   <div id="rail">
     <div class="cap" id="railTop"></div>
@@ -1129,11 +1129,11 @@ function infoBoxes() {
     const el = $(i ? "statsB" : "statsA");
     if (!p) {
       el.innerHTML = i === 1 && prints[0] && appMode
-        ? '<span class="msg">Optimize the file to see the ColorStack version here</span>' : "";
+        ? '<span class="msg">Optimize the file to see the Color Batching version here</span>' : "";
       return;
     }
     const e = p.est, swaps = e ? e.swaps : p.swapsAt.length, flush = e ? e.swap_s : p.flush, total = e ? e.total_s : p.total;
-    el.innerHTML = `<b>${i ? "ColorStack" : "Original"}</b>
+    el.innerHTML = `<b>${i ? "Color Batching" : "Original"}</b>
       <span>Filament change times</span><span>${swaps}</span>
       <span>Flush time</span><span>${fmt(flush)}</span>
       <span>Model printing time</span><span>${fmt(total - flush)}</span>
@@ -1309,7 +1309,7 @@ async function initApp() {
         ${row("Swapping", short(o.swap_s), short(p.swap_s))}
         ${row("Total", short(o.total_s), short(p.total_s), "total")}
       </table>
-      <div class="meta">${o.source === "slicer estimate" ? `Times from the slicer's own estimate, ${short(o.swap_each_s)} per colour change.` : "Times from ColorStack's motion estimate."}
+      <div class="meta">${o.source === "slicer estimate" ? `Times from the slicer's own estimate, ${short(o.swap_each_s)} per colour change.` : "Times from Color Batching's motion estimate."}
         ${r.min_layer_time && r.min_layer_time.length ? `<br>Minimum layer time ${[...new Set(r.min_layer_time)].join(" / ")} s (${r.min_layer_source === "override" ? "your setting" : "from the file"}).` : ""}
         ${r.cooled_groups ? `<br>${r.cooled_groups} stacked regions slowed to the minimum layer time${r.cooled_short ? ` (${r.cooled_short} still under it at minimum speed${r.waits ? `, ${r.waits} lift-and-waits` : ""})` : ""}.` : ""}
         ${r.fanned_paths ? `<br>Part fan raised on ${r.fanned_paths} stacked lines.` : ""}
