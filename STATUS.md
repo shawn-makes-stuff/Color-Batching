@@ -69,7 +69,11 @@ C++ PORT (branch color-batching, plan in docs/CPP_PLAN.md; build: cmake -S cpp -
 - step 2 parser: identical program dumps on 13 files (tools/dump_program.py vs dump_program.exe).
 - step 3 writer: identical G-code for the same Python plan on 14 files (tools/dump_bands.py writes the plan + the
   Python output, write_bands.exe writes the plan with the C++ writer).
-- next: step 4 estimate + summary (M73, header), then 5 geometry/plan, 6 staggered/tower/threads, 7 CLI + app, 8 CI.
+- step 3 also identical on Vegeta (both variants, 3.0M lines; C++ parse + read plan + write 12 s).
+- step 4 estimate + summary: tools/dump_finish.py vs finish.exe (estimate both files, anchor, M73 + header) -
+  identical figures and finished files on 9 files. The Python pipeline now writes LF (was CR LF on Windows by text
+  mode; outputs otherwise byte-identical).
+- next: 5 geometry/plan, 6 staggered/tower/threads, 7 CLI + app, 8 CI.
 - exactness notes: math.hypot/dist = CPython vector_norm (cpp/core/pymath.hpp); numpy hypot = the C library's;
   Python dict insertion order kept where it matters (fans, states, swap blocks); round() via to_chars/from_chars.
 

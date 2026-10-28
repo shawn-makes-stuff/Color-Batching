@@ -154,7 +154,8 @@ def run(input_path, output_path, cfg, progress=None, cancelled=None):
     anchor(o, p, slicer, lim)
     lines = stamp_progress(lines, steps, p["swap_each_s"], p["total_s"])
     stamp_header(lines, o, p)
-    Path(output_path).write_text("\n".join(lines) + "\n", encoding="utf-8")
+    # LF, as the slicers write G-code (text mode would turn it into CR LF on Windows)
+    Path(output_path).write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     return {
         "original": o,
         "processed": p,
