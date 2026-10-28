@@ -10,14 +10,14 @@ DEFAULTS = {
         "tip_diameter": 1.0,
         "cone_angle": 45.0,
         "clear_height": 2.0,
-        "contact": 0.0,
+        "contact": 0.2,      # one layer: what every measured result and the first real print used
     },
     "stack": {
         "max_band_layers": 10,
         "surface_tolerance": 0.0,
         "min_piece": 2.0,
         "per_object": True,        # plan with and without, keep the faster
-        "staggered": False,        # also plan each colour on its own schedule, keep the faster
+        "staggered": True,         # also plan each colour on its own schedule, keep the faster
         "free_support": True,      # support the slicer printed with any filament may change filament (STATUS 12)
         "resolution": 0.1,
     },

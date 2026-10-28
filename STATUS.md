@@ -61,6 +61,12 @@ Orca's tower holds ~2 per layer; on a tower-only printer (tool change without {p
 tower_purge_short (CLI line). Letting the tower run further ahead (10.6 mm, 0 collisions) needs real nozzle numbers.
 Not tested: wipe_tower_no_sparse_layers (Orca would not slice the variant).
 Exe icon: cpp/app/colorstack.ico (from viewer/icon.png) via cpp/app/icon.rc.
+Defaults (2026-10-28, after 0.1.0 shipped contact 0.0 = almost no batching: cube 77->75, Stitch 318->317):
+contact 0.2 (all measured results + the first real print) and staggered on (Stitch 229->196 swaps, -35 min, +5 s
+processing; Vegeta 958->822, -2h27m, processing 50 s -> 440 s; staggered output not checked on Vegeta). Swept with
+no gain: cone 30/55, tip 0.8/1.5, clear 3 (inert at contact 0.2; clear 1 costs 4 swaps on cube), min_piece 1/4,
+resolution 0.05/0.2, max_band_layers 4. Cooling defaults kept (measured in 8fdabaf). Next lever: contact 0.4 (cube
+47->34, Stitch 229->204) needs a print test.
 
 ## Non-planar: removed (2026-10-16)
 The user dropped all non-planar features (smooth tops, colour joins, undersides on support): no visible gain, out of

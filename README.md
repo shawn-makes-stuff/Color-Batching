@@ -18,18 +18,18 @@ folder next to the program; your settings are saved beside it in `colorstack.tom
 - Linux: `chmod +x color-batching color-batching-app` if the zip lost the permissions.
 
 ## Quick start
-1. **Measure your nozzle.** These three numbers decide how many layers can stack safely; the other defaults are
-   fine to start with.
-   - **Tip diameter**: the flat face at the very tip (calipers, or a close-up photo next to a ruler). Usually
-     about 1 mm.
-   - **Cone angle**: the angle of the nozzle's taper, measured from vertical (half the full cone angle). From a
-     side photo; most nozzles are 40-60°.
-   - **Clear height**: how far the tip sticks out below the lowest part of the heater block, silicone sock or fan
-     duct. <br>In real world usage, the full clear height will almost never be utilized.
-2. **Enter them** in the app's Nozzle card and press Save defaults.
-3. **Slice** your multicolour model as usual and export the G-code.
-4. **Import** it in the app (top bar), press **Optimize file**, and check the two prints side by side.
-5. **Export** the optimized file, or send it straight to a Moonraker printer.
+1. **Slice** your multicolour model as usual and export the G-code.
+2. **Import** it in the app (top bar), press **Optimize file**, and check the two prints side by side.
+3. **Export** the optimized file, or send it straight to a Moonraker printer.
+
+The defaults suit a standard 0.4 mm nozzle. The setting that matters most is **Edge contact** (0.2 mm): how much
+taller a neighbouring colour may stand while the nozzle passes it, at 0.2 mm layers that lets each colour print two
+layers at a time. 0.0 turns batching almost off; higher values batch more but are not print-tested yet. The other
+nozzle numbers (tip diameter, cone angle, clear height) change little at 0.2; if you raise edge contact, measure
+them first:
+- **Tip diameter**: the flat face at the very tip (calipers, or a close-up photo next to a ruler).
+- **Cone angle**: the nozzle's taper measured from vertical (half the full cone angle), from a side photo.
+- **Clear height**: how far the tip sticks out below the heater block, silicone sock or fan duct.
 
 Prefer the command line? `color-batching in.gcode -o out.gcode` uses the same saved settings
 (`--set section.key=value` overrides one, e.g. `--set nozzle.cone_angle=40`).

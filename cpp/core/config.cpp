@@ -157,12 +157,12 @@ Json parse_toml(const std::string& text) {
 
 const Json& defaults() {
     static const Json d = section({
-        {"nozzle", section({{"tip_diameter", 1.0}, {"cone_angle", 45.0}, {"clear_height", 2.0}, {"contact", 0.0}})},
+        {"nozzle", section({{"tip_diameter", 1.0}, {"cone_angle", 45.0}, {"clear_height", 2.0}, {"contact", 0.2}})},
         {"stack", section({{"max_band_layers", 10},
                            {"surface_tolerance", 0.0},
                            {"min_piece", 2.0},
                            {"per_object", true},       // plan with and without, keep the faster
-                           {"staggered", false},       // also plan each colour on its own schedule, keep the faster
+                           {"staggered", true},        // also plan each colour on its own schedule, keep the faster
                            {"free_support", true},     // support printed with any filament may change filament
                            {"resolution", 0.1}})},
         {"cooling", section({{"respect_min_layer_time", true},

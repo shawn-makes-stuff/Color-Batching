@@ -1,19 +1,19 @@
 # ColorStack settings
 
 Set them in the app's side panel (Save defaults writes `colorstack.toml`), by editing `colorstack.toml`, or per
-run with `python -m colorstack in.gcode --set section.key=value`.
+run with `color-batching in.gcode --set section.key=value`.
 
 | Setting | Default | Meaning |
 |---|---|---|
 | `nozzle.tip_diameter` | 1.0 mm | Flat face at the nozzle tip. |
 | `nozzle.cone_angle` | 45° | Cone half-angle from vertical. |
 | `nozzle.clear_height` | 2.0 mm | How far the tip sticks out below the heater block / sock / duct. |
-| `nozzle.contact` | 0.0 mm | How much taller a neighbouring edge may be while the nozzle face slides past. 0.2 = two layers per colour, 0.4 = three. |
+| `nozzle.contact` | 0.2 mm | How much taller a neighbouring edge may be while the nozzle face slides past. 0.2 = two layers per colour, 0.4 = three. |
 | `stack.max_band_layers` | 10 | Most layers one colour prints before the next swap. |
 | `stack.surface_tolerance` | 0.0 mm | How far a colour edge on a visible surface may move. 0 = never. |
 | `stack.min_piece` | 2.0 mm | Shorter leftovers between handed-over pieces are handed over too. |
 | `stack.per_object` | on | Also plan each object on its own; the faster plan is kept. |
-| `stack.staggered` | off | Also plan each colour on its own schedule (fewer swaps where 3+ colours share layers); the faster plan is kept. Slower processing. |
+| `stack.staggered` | on | Also plan each colour on its own schedule (fewer swaps where 3+ colours share layers); the faster plan is kept. Slower processing. |
 | `stack.free_support` | on | Support the slicer printed with whatever filament was loaded (support filament "Default") may be printed by another filament of the same material, so it stacks. Support (or interface) with a chosen filament keeps it. |
 | `stack.resolution` | 0.1 mm | Sampling step for the collision planning. |
 | `cooling.respect_min_layer_time` | on | Slow regions printed straight on top of themselves down to the minimum layer time, as the slicer does (not below its minimum speed). Outer walls always keep their sliced speed. |
